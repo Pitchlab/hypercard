@@ -5,6 +5,8 @@ import {
   getCardsByType,
   getCardsByTag,
   getOrphanCards,
+  getCardsFiltered,
+  searchCardsFiltered,
 } from '../../core/db.js';
 import { findProjectRoot } from '../../util/paths.js';
 import { outputYaml } from '../../util/yaml.js';
@@ -31,7 +33,13 @@ function cardsToListEntries(db: Database.Database, cards: { id: string; title: s
   });
 }
 
-export async function lsCommand(options: { type?: string; tag?: string; orphans?: boolean }): Promise<void> {
+export async function lsCommand(options: {
+  type?: string;
+  tag?: string;
+  orphans?: boolean;
+  where?: string[];
+  search?: string;
+}): Promise<void> {
   const projectRoot = findProjectRoot();
   if (!projectRoot) {
     process.stderr.write('Error: Not in a HyperCard project (no .hypercard/ found)\n');
@@ -46,12 +54,40 @@ export async function lsCommand(options: { type?: string; tag?: string; orphans?
 
     if (options.orphans) {
       entries = getOrphanCards(db);
-    } else if (options.type) {
-      entries = cardsToListEntries(db, getCardsByType(db, options.type));
-    } else if (options.tag) {
-      entries = cardsToListEntries(db, getCardsByTag(db, options.tag));
     } else {
-      entries = cardsToListEntries(db, getAllCards(db));
+      // Parse --where filters
+      const whereFilters: Record<string, string> = {};
+      if (options.where && options.where.length > 0) {
+        for (const filter of options.where) {
+          const match = filter.match(/^([^=]+)=(.*)$/);
+          if (!match) {
+            process.stderr.write(`Error: Invalid --where format "${filter}". Expected key=value\n`);
+            process.exit(1);
+          }
+          const [, key, value] = match;
+          whereFilters[key.trim()] = value.trim();
+        }
+      }
+
+      // Use FTS5 search if --search is provided
+      if (options.search) {
+        const cards = searchCardsFiltered(db, options.search, {
+          type: options.type,
+          tag: options.tag,
+          where: Object.keys(whereFilters).length > 0 ? whereFilters : undefined,
+        });
+        entries = cardsToListEntries(db, cards);
+      } else if (options.type || options.tag || Object.keys(whereFilters).length > 0) {
+        // Use regular filtered query
+        const cards = getCardsFiltered(db, {
+          type: options.type,
+          tag: options.tag,
+          where: Object.keys(whereFilters).length > 0 ? whereFilters : undefined,
+        });
+        entries = cardsToListEntries(db, cards);
+      } else {
+        entries = cardsToListEntries(db, getAllCards(db));
+      }
     }
 
     outputYaml({

@@ -1,5 +1,5 @@
 import Database from 'better-sqlite3';
-import type { ICard, IEdge, ICardListEntry } from './types.js';
+import type { ICard, IEdge, ICardListEntry, ISearchResult } from './types.js';
 
 const SCHEMA = `
 CREATE TABLE IF NOT EXISTS cards (
@@ -123,6 +123,196 @@ export function getCardsByTag(db: Database.Database, tag: string): ICard[] {
     .prepare(`SELECT * FROM cards WHERE tags LIKE ? ORDER BY id`)
     .all(`%"${tag}"%`) as Record<string, unknown>[];
   return rows.map(rowToCard);
+}
+
+export function getCardsByWhere(db: Database.Database, filters: Record<string, string>): ICard[] {
+  const entries = Object.entries(filters);
+  if (entries.length === 0) {
+    return getAllCards(db);
+  }
+
+  const whereClauses = entries.map(() => `json_extract(frontmatter, '$.' || ?) = ?`);
+  const whereClause = whereClauses.join(' AND ');
+  const params: string[] = [];
+
+  for (const [key, value] of entries) {
+    params.push(key, value);
+  }
+
+  const query = `SELECT * FROM cards WHERE ${whereClause} ORDER BY id`;
+  const rows = db.prepare(query).all(...params) as Record<string, unknown>[];
+  return rows.map(rowToCard);
+}
+
+export function getCardsFiltered(
+  db: Database.Database,
+  options: { type?: string; tag?: string; where?: Record<string, string> },
+): ICard[] {
+  const whereClauses: string[] = [];
+  const params: (string | number)[] = [];
+
+  // Type filter
+  if (options.type) {
+    whereClauses.push('type = ?');
+    params.push(options.type);
+  }
+
+  // Tag filter
+  if (options.tag) {
+    whereClauses.push('tags LIKE ?');
+    params.push(`%"${options.tag}"%`);
+  }
+
+  // Frontmatter filters
+  if (options.where) {
+    for (const [key, value] of Object.entries(options.where)) {
+      whereClauses.push(`json_extract(frontmatter, '$.' || ?) = ?`);
+      params.push(key, value);
+    }
+  }
+
+  let query = 'SELECT * FROM cards';
+  if (whereClauses.length > 0) {
+    query += ' WHERE ' + whereClauses.join(' AND ');
+  }
+  query += ' ORDER BY id';
+
+  const rows = db.prepare(query).all(...params) as Record<string, unknown>[];
+  return rows.map(rowToCard);
+}
+
+export function searchCards(db: Database.Database, query: string): ICard[] {
+  const rows = db
+    .prepare(
+      `SELECT cards.*
+       FROM cards_fts
+       JOIN cards ON cards.rowid = cards_fts.rowid
+       WHERE cards_fts MATCH ?
+       ORDER BY bm25(cards_fts)`,
+    )
+    .all(query) as Record<string, unknown>[];
+  return rows.map(rowToCard);
+}
+
+export function searchCardsFiltered(
+  db: Database.Database,
+  query: string,
+  options: { type?: string; tag?: string; where?: Record<string, string> },
+): ICard[] {
+  const conditions: string[] = ['cards_fts MATCH ?'];
+  const params: (string | number)[] = [query];
+
+  if (options.type) {
+    conditions.push('cards.type = ?');
+    params.push(options.type);
+  }
+
+  if (options.tag) {
+    conditions.push('cards.tags LIKE ?');
+    params.push(`%"${options.tag}"%`);
+  }
+
+  if (options.where) {
+    for (const [key, value] of Object.entries(options.where)) {
+      conditions.push(`json_extract(cards.frontmatter, '$.' || ?) = ?`);
+      params.push(key, value);
+    }
+  }
+
+  const sql = `
+    SELECT cards.*
+    FROM cards_fts
+    JOIN cards ON cards.rowid = cards_fts.rowid
+    WHERE ${conditions.join(' AND ')}
+    ORDER BY bm25(cards_fts)
+  `;
+
+  const rows = db.prepare(sql).all(...params) as Record<string, unknown>[];
+  return rows.map(rowToCard);
+}
+
+export function searchCardsWithScores(
+  db: Database.Database,
+  query: string,
+  options: { type?: string; tag?: string; where?: Record<string, string>; limit?: number },
+): ISearchResult[] {
+  const conditions: string[] = ['cards_fts MATCH ?'];
+  const params: (string | number)[] = [query];
+
+  if (options.type) {
+    conditions.push('cards.type = ?');
+    params.push(options.type);
+  }
+
+  if (options.tag) {
+    conditions.push('cards.tags LIKE ?');
+    params.push(`%"${options.tag}"%`);
+  }
+
+  if (options.where) {
+    for (const [key, value] of Object.entries(options.where)) {
+      conditions.push(`json_extract(cards.frontmatter, '$.' || ?) = ?`);
+      params.push(key, value);
+    }
+  }
+
+  const limit = options.limit ?? 10;
+
+  const sql = `
+    SELECT cards.*, bm25(cards_fts) AS bm25_score
+    FROM cards_fts
+    JOIN cards ON cards.rowid = cards_fts.rowid
+    WHERE ${conditions.join(' AND ')}
+    ORDER BY bm25(cards_fts)
+    LIMIT ?
+  `;
+  params.push(limit);
+
+  const rows = db.prepare(sql).all(...params) as (Record<string, unknown> & { bm25_score: number })[];
+
+  return rows.map((row, index) => {
+    const card = rowToCard(row);
+    const score = 1 / (1 + Math.abs(row.bm25_score));
+    const snippet = extractSnippet(card.content, query);
+
+    return {
+      id: card.id,
+      title: card.title,
+      type: card.type,
+      tags: card.tags,
+      score: Math.round(score * 1000) / 1000,
+      snippet,
+      bm25_rank: index + 1,
+    };
+  });
+}
+
+function extractSnippet(content: string, query: string): string {
+  const words = query.toLowerCase().split(/\s+/);
+  const lower = content.toLowerCase();
+
+  // Find first occurrence of any query word
+  let bestPos = -1;
+  for (const word of words) {
+    const pos = lower.indexOf(word);
+    if (pos !== -1 && (bestPos === -1 || pos < bestPos)) {
+      bestPos = pos;
+    }
+  }
+
+  if (bestPos === -1) {
+    // No match found, return start of content
+    return content.slice(0, 200).replace(/\n+/g, ' ').trim() + (content.length > 200 ? '...' : '');
+  }
+
+  const start = Math.max(0, bestPos - 80);
+  const end = Math.min(content.length, bestPos + 120);
+  let snippet = content.slice(start, end).replace(/\n+/g, ' ').trim();
+
+  if (start > 0) snippet = '...' + snippet;
+  if (end < content.length) snippet = snippet + '...';
+
+  return snippet;
 }
 
 // --- Edge CRUD ---

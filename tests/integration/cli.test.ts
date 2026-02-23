@@ -146,6 +146,75 @@ describe('CLI Integration Tests', () => {
       expect(orphan.links_out).toBe(0);
       expect(orphan.links_in).toBe(0);
     });
+
+    it('filters by single frontmatter key using --where', () => {
+      const output = runCLI('ls --where status=draft', tempDir);
+      const result = parseYaml(output);
+
+      expect(result.count).toBe(2);
+      expect(result.cards).toHaveLength(2);
+      const ids = result.cards.map((c: { id: string }) => c.id).sort();
+      expect(ids).toEqual(['factions/crimson_order', 'orphan']);
+    });
+
+    it('filters by multiple frontmatter keys using --where (AND logic)', () => {
+      const output = runCLI('ls --where status=draft --where era=medieval', tempDir);
+      const result = parseYaml(output);
+
+      expect(result.count).toBe(1);
+      expect(result.cards).toHaveLength(1);
+      expect(result.cards[0].id).toBe('factions/crimson_order');
+    });
+
+    it('combines --type and --where filters', () => {
+      const output = runCLI('ls --type=factions --where status=draft', tempDir);
+      const result = parseYaml(output);
+
+      expect(result.count).toBe(1);
+      expect(result.cards).toHaveLength(1);
+      expect(result.cards[0].id).toBe('factions/crimson_order');
+      expect(result.cards[0].type).toBe('factions');
+    });
+
+    it('combines --tag and --where filters', () => {
+      const output = runCLI('ls --tag=military --where status=draft', tempDir);
+      const result = parseYaml(output);
+
+      expect(result.count).toBe(1);
+      expect(result.cards).toHaveLength(1);
+      expect(result.cards[0].id).toBe('factions/crimson_order');
+    });
+
+    it('combines --type, --tag, and --where filters', () => {
+      const output = runCLI('ls --type=factions --tag=military --where status=draft --where era=medieval', tempDir);
+      const result = parseYaml(output);
+
+      expect(result.count).toBe(1);
+      expect(result.cards).toHaveLength(1);
+      expect(result.cards[0].id).toBe('factions/crimson_order');
+    });
+
+    it('returns empty result for non-existent frontmatter value', () => {
+      const output = runCLI('ls --where status=nonexistent', tempDir);
+      const result = parseYaml(output);
+
+      expect(result.count).toBe(0);
+      expect(result.cards).toHaveLength(0);
+    });
+
+    it('returns empty result for non-existent frontmatter key', () => {
+      const output = runCLI('ls --where nonexistentkey=value', tempDir);
+      const result = parseYaml(output);
+
+      expect(result.count).toBe(0);
+      expect(result.cards).toHaveLength(0);
+    });
+
+    it('fails with error for invalid --where format', () => {
+      expect(() => {
+        runCLI('ls --where invalidformat', tempDir);
+      }).toThrow(/Invalid --where format/);
+    });
   });
 
   describe('hypercard get', () => {
@@ -408,6 +477,8 @@ function createFixtures(tempDir: string) {
     path.join(tempDir, 'factions', 'crimson_order.md'),
     `---
 tags: [military]
+status: draft
+era: medieval
 ---
 
 # Crimson Order
@@ -430,6 +501,8 @@ The Order maintains control over strategic territories.
     path.join(tempDir, 'characters', 'voss.md'),
     `---
 tags: [leader]
+status: published
+era: modern
 ---
 
 # Commander Voss
@@ -452,6 +525,8 @@ His strategies continue to shape regional politics.
     path.join(tempDir, 'locations', 'iron_citadel.md'),
     `---
 tags: [fortress]
+status: published
+era: medieval
 ---
 
 # Iron Citadel
@@ -474,6 +549,8 @@ Controls access to northern trade routes.
     path.join(tempDir, 'orphan.md'),
     `---
 tags: [unused]
+status: draft
+era: ancient
 ---
 
 # Orphan Card

@@ -90,3 +90,44 @@ export interface IInitSummary {
   links: number;
   broken_links: number;
 }
+
+export interface ILinkChange {
+  from: string;
+  to: string;
+}
+
+export interface IFilenameIssue {
+  issue: 'spaces_in_filename' | 'uppercase_in_filename' | 'no_type_directory';
+  suggestion?: string;
+}
+
+export interface IConversionWarning {
+  file: string;
+  message: string;
+}
+
+export interface IConversionResult {
+  file: string;
+  converted_content: string;
+  frontmatter_added: boolean;
+  links_fixed: number;
+  link_changes: ILinkChange[];
+  filename_issues: IFilenameIssue[];
+  warnings: IConversionWarning[];
+  modified: boolean;
+}
+
+export interface IConversionSummary {
+  dry_run: boolean;
+  files_processed: number;
+  files_modified: number;
+  files_renamed: number;
+  changes: {
+    file: string;
+    frontmatter_added: boolean;
+    links_fixed: number;
+    link_changes: ILinkChange[];
+    filename_issues: IFilenameIssue[];
+  }[];
+  warnings: IConversionWarning[];
+}

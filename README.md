@@ -7,8 +7,11 @@ A CLI tool that turns a folder of interconnected markdown files into a queryable
 ## Install
 
 ```bash
-cd your-project
-pnpm install  # or: npx hypercard init
+# From the hypercard-cli directory:
+npm link    # Makes 'hypercard' available globally
+
+# Then from any project folder:
+hypercard init
 ```
 
 ## Quick Start
@@ -34,6 +37,8 @@ Every `.md` file under the project root is a **card**.
 ```markdown
 ---
 tags: [military, antagonist]
+status: published
+era: medieval
 ---
 
 # The Crimson Order
@@ -48,6 +53,7 @@ Founded by [[characters/voss|Commander Voss]] during [[events/the_shattering]].
 - **Title** = first `# Heading` in the file (falls back to filename)
 - **Tags** = `tags` array in YAML frontmatter
 - **Links** = `[[exact/card_id]]` or `[[exact/card_id|Display Text]]` — must be exact IDs
+- **Frontmatter** = All frontmatter keys are queryable with `hypercard ls --where key=value`
 
 ## Commands
 
@@ -78,6 +84,11 @@ hypercard ls                       # All cards
 hypercard ls --type=factions       # Filter by type
 hypercard ls --tag=military        # Filter by tag
 hypercard ls --orphans             # Cards with zero links
+hypercard ls --where status=draft          # Filter by frontmatter field
+hypercard ls --where status=draft --where era=medieval  # Multiple filters (AND)
+hypercard ls --search "crimson"            # Full-text search in list
+hypercard ls --search "warrior" --type=factions         # Search + type filter
+hypercard ls --type=factions --tag=military --where status=published  # All filters combined
 ```
 
 Output:
@@ -128,6 +139,44 @@ candidates:
   - characters/voss
   - characters/voss_jr
 ```
+
+### `hypercard convert [file]`
+
+Convert existing markdown files to HyperCard format. Ensures frontmatter exists with `tags`, resolves bare wiki-links like `[[rebels]]` to full paths like `[[factions/rebels]]`, and flags filename issues. Dry-run by default.
+
+```bash
+hypercard convert notes.md              # Dry-run single file
+hypercard convert notes.md --write      # Apply changes
+hypercard convert --all                 # Dry-run all .md files
+hypercard convert --all --write         # Apply to all files
+```
+
+Output:
+```yaml
+dry_run: true
+files_processed: 3
+files_modified: 2
+files_renamed: 0
+changes:
+  - file: factions/crimson order.md
+    frontmatter_added: true
+    links_fixed: 2
+    link_changes:
+      - from: "[[rebels]]"
+        to: "[[factions/rebels]]"
+    filename_issues:
+      - issue: spaces_in_filename
+        suggestion: factions/crimson_order.md
+warnings:
+  - file: notes.md
+    message: "File in project root (no type directory)"
+```
+
+With `--write`:
+- Adds frontmatter/tags to files
+- Resolves bare wiki-links to full paths
+- Renames files (spaces → underscores, uppercase → lowercase)
+- Updates `[[references]]` in other files after rename
 
 ### `hypercard index`
 
@@ -221,8 +270,14 @@ hypercard ls                                # List all cards (id, title, type, t
 hypercard ls --type=<type>                  # Filter by type
 hypercard ls --tag=<tag>                    # Filter by tag
 hypercard ls --orphans                      # Cards with no links in or out
+hypercard ls --where <key>=<value>          # Filter by any frontmatter field (repeatable)
+hypercard ls --search "<query>"             # Full-text search within card list
 hypercard get <id>                          # Get card by exact ID (content + links_out + links_in)
 hypercard get <shorthand>                   # Fuzzy resolve (errors if ambiguous with candidates)
+hypercard convert <file>                    # Dry-run: check frontmatter, links, filenames
+hypercard convert <file> --write            # Apply conversions
+hypercard convert --all                     # Dry-run all .md files
+hypercard convert --all --write             # Apply to all files
 hypercard index                             # Full reindex
 hypercard index --only <file>               # Reindex single file
 hypercard index --check                     # Show stale/missing/new without writing
