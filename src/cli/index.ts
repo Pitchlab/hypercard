@@ -7,6 +7,7 @@ import { getCommand } from './commands/get.js';
 import { lsCommand } from './commands/ls.js';
 import { convertCommand } from './commands/convert.js';
 import { searchCommand } from './commands/search.js';
+import { graphCommand } from './commands/graph.js';
 
 const program = new Command();
 
@@ -132,5 +133,27 @@ program
   .option('--semantic', 'Use semantic search (not yet implemented)')
   .option('--hybrid', 'Use hybrid search (not yet implemented)')
   .action(searchCommand);
+
+program
+  .command('graph <id>')
+  .description(
+    'Explore a card\'s connected neighborhood via BFS traversal.\n\n' +
+    'Examples:\n' +
+    '  hypercard graph factions/crimson_order              # Default: depth 1, both directions\n' +
+    '  hypercard graph crimson_order --depth=2             # Two hops\n' +
+    '  hypercard graph crimson_order --out                 # Outgoing links only\n' +
+    '  hypercard graph crimson_order --in                  # Incoming links only\n' +
+    '  hypercard graph crimson_order --exclude=events      # Skip event cards\n' +
+    '  hypercard graph crimson_order --max=5               # Limit included cards\n' +
+    '  hypercard graph crimson_order --include=factions:full,characters:meta\n\n' +
+    'Output: card (root at full detail), included[], truncated[], not_fetched[]',
+  )
+  .option('--depth <n>', 'Number of hops to follow (1-3, default: 1)', '1')
+  .option('--max <n>', 'Maximum included cards (1-50, default: 20)', '20')
+  .option('--out', 'Follow outgoing links only')
+  .option('--in', 'Follow incoming links only')
+  .option('--exclude <types>', 'Exclude card types (comma-separated)')
+  .option('--include <mappings>', 'Type detail levels (comma-separated type:detail pairs)')
+  .action(graphCommand);
 
 program.parse();

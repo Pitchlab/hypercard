@@ -1,5 +1,19 @@
 # Changelog
 
+## [0.3.0] - 2026-02-24
+
+### Added
+- **CLI**: `hypercard graph <id>` — BFS graph traversal of card neighborhoods
+  - `--depth` (1-3), `--max` (1-50) for traversal control
+  - `--out` / `--in` for directional filtering
+  - `--exclude` to skip card types
+  - `--include` for per-type detail levels (full/summary/meta/id)
+  - Root card always at full detail, neighbors at configurable detail
+  - Cycle avoidance, broken link detection, truncation reporting
+- **Core**: `graph.ts` — pure BFS traversal logic with detail levels and direction control
+- 28 new tests (212 total passing)
+- Phase 2 (BM25 Search + Graph Traversal) is now complete
+
 ## [0.2.0] - 2026-02-23
 
 ### Added
