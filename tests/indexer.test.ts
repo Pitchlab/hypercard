@@ -28,8 +28,8 @@ describe('indexer', () => {
   });
 
   describe('indexAllCards()', () => {
-    it('indexes all .md files correctly', () => {
-      const stats = indexAllCards(tempDir, db);
+    it('indexes all .md files correctly', async () => {
+      const stats = await indexAllCards(tempDir, db);
 
       expect(stats.cards_added).toBe(4);
       expect(stats.cards_updated).toBe(0);
@@ -41,8 +41,8 @@ describe('indexer', () => {
       expect(cardCount.count).toBe(4);
     });
 
-    it('extracts and stores edges correctly', () => {
-      indexAllCards(tempDir, db);
+    it('extracts and stores edges correctly', async () => {
+      await indexAllCards(tempDir, db);
 
       // Verify edges table has entries
       const edgeCount = db.prepare('SELECT COUNT(*) as count FROM edges').get() as { count: number };
@@ -61,8 +61,8 @@ describe('indexer', () => {
       expect(reverseEdge).toBeDefined();
     });
 
-    it('stores card metadata correctly', () => {
-      indexAllCards(tempDir, db);
+    it('stores card metadata correctly', async () => {
+      await indexAllCards(tempDir, db);
 
       // Check voss card
       const voss = db.prepare('SELECT * FROM cards WHERE id = ?').get('characters/voss') as Record<string, unknown>;
@@ -75,9 +75,9 @@ describe('indexer', () => {
       expect(voss.content).toContain('iron-fisted leader');
     });
 
-    it('updates card on re-index', () => {
+    it('updates card on re-index', async () => {
       // First index
-      const stats1 = indexAllCards(tempDir, db);
+      const stats1 = await indexAllCards(tempDir, db);
       expect(stats1.cards_added).toBe(4);
       expect(stats1.cards_updated).toBe(0);
 
@@ -88,7 +88,7 @@ describe('indexer', () => {
       fs.writeFileSync(vossPath, modifiedContent, 'utf-8');
 
       // Re-index
-      const stats2 = indexAllCards(tempDir, db);
+      const stats2 = await indexAllCards(tempDir, db);
       expect(stats2.cards_added).toBe(0);
       expect(stats2.cards_updated).toBe(4); // All cards are "updated" on re-index
       expect(stats2.cards_deleted).toBe(0);
@@ -99,9 +99,9 @@ describe('indexer', () => {
       expect(voss.content).not.toContain('iron-fisted leader');
     });
 
-    it('deletes cards whose files were removed', () => {
+    it('deletes cards whose files were removed', async () => {
       // First index
-      indexAllCards(tempDir, db);
+      await indexAllCards(tempDir, db);
 
       const initialCount = (db.prepare('SELECT COUNT(*) as count FROM cards').get() as { count: number }).count;
       expect(initialCount).toBe(4);
@@ -110,7 +110,7 @@ describe('indexer', () => {
       fs.unlinkSync(path.join(tempDir, 'orphan.md'));
 
       // Re-index
-      const stats = indexAllCards(tempDir, db);
+      const stats = await indexAllCards(tempDir, db);
       expect(stats.cards_deleted).toBe(1);
 
       // Verify card was deleted
@@ -121,8 +121,8 @@ describe('indexer', () => {
       expect(orphan).toBeUndefined();
     });
 
-    it('updates edges when links change', () => {
-      indexAllCards(tempDir, db);
+    it('updates edges when links change', async () => {
+      await indexAllCards(tempDir, db);
 
       // Get initial edge count for voss
       const initialEdges = db
@@ -137,7 +137,7 @@ describe('indexer', () => {
       fs.writeFileSync(vossPath, modifiedContent, 'utf-8');
 
       // Re-index
-      indexAllCards(tempDir, db);
+      await indexAllCards(tempDir, db);
 
       // Verify edge count increased
       const finalEdges = db
@@ -154,9 +154,9 @@ describe('indexer', () => {
   });
 
   describe('indexSingleCard()', () => {
-    it('indexes a single card', () => {
+    it('indexes a single card', async () => {
       const vossPath = path.join(tempDir, 'characters', 'voss.md');
-      indexSingleCard(vossPath, tempDir, db);
+      await indexSingleCard(vossPath, tempDir, db);
 
       const card = db.prepare('SELECT * FROM cards WHERE id = ?').get('characters/voss') as Record<string, unknown>;
       expect(card).toBeDefined();
@@ -164,10 +164,10 @@ describe('indexer', () => {
       expect(card.title).toBe('Commander Voss');
     });
 
-    it('updates existing card', () => {
+    it('updates existing card', async () => {
       // First index
       const vossPath = path.join(tempDir, 'characters', 'voss.md');
-      indexSingleCard(vossPath, tempDir, db);
+      await indexSingleCard(vossPath, tempDir, db);
 
       const card1 = db.prepare('SELECT * FROM cards WHERE id = ?').get('characters/voss') as Record<string, unknown>;
       expect(card1.content).toContain('iron-fisted leader');
@@ -177,16 +177,16 @@ describe('indexer', () => {
       const modifiedContent = content.replace('iron-fisted leader', 'ruthless commander');
       fs.writeFileSync(vossPath, modifiedContent, 'utf-8');
 
-      indexSingleCard(vossPath, tempDir, db);
+      await indexSingleCard(vossPath, tempDir, db);
 
       const card2 = db.prepare('SELECT * FROM cards WHERE id = ?').get('characters/voss') as Record<string, unknown>;
       expect(card2.content).toContain('ruthless commander');
       expect(card2.content).not.toContain('iron-fisted leader');
     });
 
-    it('handles relative paths', () => {
+    it('handles relative paths', async () => {
       const relPath = 'characters/voss.md';
-      indexSingleCard(relPath, tempDir, db);
+      await indexSingleCard(relPath, tempDir, db);
 
       const card = db.prepare('SELECT * FROM cards WHERE id = ?').get('characters/voss') as Record<string, unknown>;
       expect(card).toBeDefined();
@@ -194,9 +194,9 @@ describe('indexer', () => {
   });
 
   describe('checkStaleness()', () => {
-    beforeEach(() => {
+    beforeEach(async () => {
       // Index all cards first
-      indexAllCards(tempDir, db);
+      await indexAllCards(tempDir, db);
     });
 
     it('detects stale cards after file modification', () => {

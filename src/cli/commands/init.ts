@@ -31,7 +31,9 @@ export async function initCommand(): Promise<void> {
   const dbPath = path.join(hypercardDir, 'hypercard.db');
   const db = initDatabase(dbPath);
 
-  indexAllCards(projectRoot, db);
+  process.stderr.write('Indexing all cards...');
+  await indexAllCards(projectRoot, db);
+  process.stderr.write(' done.\n');
 
   const cards = getCardCount(db);
   const types = getTypes(db);

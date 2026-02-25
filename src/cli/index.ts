@@ -8,6 +8,13 @@ import { lsCommand } from './commands/ls.js';
 import { convertCommand } from './commands/convert.js';
 import { searchCommand } from './commands/search.js';
 import { graphCommand } from './commands/graph.js';
+import { notifyCommand } from './commands/notify.js';
+import { statusCommand } from './commands/status.js';
+import { startCommand } from './commands/start.js';
+import { linkCommand } from './commands/link.js';
+import { unlinkCommand } from './commands/unlink.js';
+import { stopCommand } from './commands/stop.js';
+import { suggestLinksCommand } from './commands/suggest-links.js';
 
 const program = new Command();
 
@@ -21,19 +28,23 @@ program
     '  - Cards link to each other with [[type/card_id]] or [[type/card_id|Display Text]]\n' +
     '  - Card ID = relative path without .md (e.g., factions/rebels.md → factions/rebels)\n' +
     '  - Card type = first directory segment (e.g., factions/rebels → type: factions)\n\n' +
-    'All output is YAML to stdout. Errors go to stderr.\n\n' +
+    'All output is YAML to stdout. Errors go to stderr.\n' +
+    'A background daemon auto-starts on first command and keeps the index hot.\n\n' +
     'Workflow:\n' +
     '  hypercard init                     # Initialize project, index all .md files\n' +
     '  hypercard ls                       # List all cards\n' +
     '  hypercard ls --where key=value     # Filter by frontmatter field\n' +
     '  hypercard ls --search "query"      # Full-text search in list\n' +
     '  hypercard get <id>                 # Read a card with its links\n' +
-    '  hypercard search <query>           # Hybrid search across cards (Phase 2)\n' +
-    '  hypercard graph <id>               # Explore card neighborhood (Phase 2)\n' +
-    '  hypercard lint                     # Check integrity (Phase 5)\n' +
-    '  hypercard rename <old> <new>       # Rename card, update all refs (Phase 5)',
+    '  hypercard search <query>           # Search across cards\n' +
+    '  hypercard graph <id>               # Explore card neighborhood\n' +
+    '  hypercard link <source> <target>   # Add a [[target]] link in source file\n' +
+    '  hypercard unlink <source> <target> # Remove [[target]] links from source file\n' +
+    '  hypercard status                   # Show daemon and index status\n' +
+    '  hypercard stop                     # Stop the background daemon\n' +
+    '  hypercard notify <file>            # Trigger reindex (for editor hooks)',
   )
-  .version('0.1.0');
+  .version('0.3.0');
 
 program
   .command('init')
@@ -130,8 +141,8 @@ program
   .option('--where <filter...>', 'Filter by frontmatter key=value (repeatable, AND logic)')
   .option('--limit <n>', 'Max results (default: 10)', '10')
   .option('--bm25', 'Use keyword search (default)')
-  .option('--semantic', 'Use semantic search (not yet implemented)')
-  .option('--hybrid', 'Use hybrid search (not yet implemented)')
+  .option('--semantic', 'Use semantic vector search')
+  .option('--hybrid', 'Use hybrid BM25 + semantic search')
   .action(searchCommand);
 
 program
@@ -155,5 +166,76 @@ program
   .option('--exclude <types>', 'Exclude card types (comma-separated)')
   .option('--include <mappings>', 'Type detail levels (comma-separated type:detail pairs)')
   .action(graphCommand);
+
+program
+  .command('suggest-links <id>')
+  .description(
+    'Suggest missing links based on semantic similarity and content analysis.\n\n' +
+    'Finds cards that should be linked to the given card but are not.\n' +
+    'Uses two strategies:\n' +
+    '  - Semantic similarity: cards with similar embeddings\n' +
+    '  - Mention detection: cards whose title or ID segment appears in content\n\n' +
+    'Examples:\n' +
+    '  hypercard suggest-links factions/rebels     # Suggest links for a card\n' +
+    '  hypercard suggest-links rebels              # Fuzzy ID resolution\n' +
+    '  hypercard suggest-links rebels --limit=5    # Limit results\n\n' +
+    'Output: card (resolved ID), count, suggestions[] (target_id, target_title, reason, score)',
+  )
+  .option('--limit <n>', 'Maximum suggestions to return (default: 10)', '10')
+  .action(suggestLinksCommand);
+
+program
+  .command('notify <file>')
+  .description(
+    'Fire-and-forget reindex trigger for editor hooks.\n' +
+    'Sends the file path to the daemon for reindexing.\n' +
+    'Silent on failure — safe to use in pre/post-save hooks.\n\n' +
+    'Example hook (Claude Code):\n' +
+    '  hypercard notify $FILE',
+  )
+  .action(notifyCommand);
+
+program
+  .command('status')
+  .description(
+    'Show daemon and index status.\n\n' +
+    'Output: daemon (running/stopped), pid, uptime_seconds, cards, types, embeddings, embedder_loaded',
+  )
+  .action(statusCommand);
+
+program
+  .command('start')
+  .description('Start the background daemon (auto-starts on any command, but this is explicit).')
+  .action(startCommand);
+
+program
+  .command('stop')
+  .description('Stop the background daemon and clean up socket/PID files.')
+  .action(stopCommand);
+
+program
+  .command('link <source> <target>')
+  .description(
+    'Add a [[target]] wiki-link in the source card file.\n' +
+    'Appends the link to the end of the first paragraph after the title.\n' +
+    'No-op if the link already exists.\n\n' +
+    'Examples:\n' +
+    '  hypercard link factions/rebels characters/leia\n' +
+    '  hypercard link rebels leia       # Fuzzy IDs supported\n\n' +
+    'Output: command, source, target, added, line (or reason)',
+  )
+  .action(linkCommand);
+
+program
+  .command('unlink <source> <target>')
+  .description(
+    'Remove all [[target]] wiki-links from the source card file.\n' +
+    'Removes both [[target]] and [[target|Display Text]] forms.\n\n' +
+    'Examples:\n' +
+    '  hypercard unlink factions/rebels characters/leia\n' +
+    '  hypercard unlink rebels leia     # Fuzzy IDs supported\n\n' +
+    'Output: command, source, target, removed, count (or reason)',
+  )
+  .action(unlinkCommand);
 
 program.parse();

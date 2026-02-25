@@ -17,6 +17,16 @@ describe('hypercard search', () => {
   });
 
   afterEach(() => {
+    // Kill daemon if running
+    try {
+      const pidPath = path.join(tempDir, '.hypercard', 'daemon.pid');
+      if (fs.existsSync(pidPath)) {
+        const pid = parseInt(fs.readFileSync(pidPath, 'utf-8').trim(), 10);
+        if (!isNaN(pid)) process.kill(pid, 'SIGTERM');
+      }
+    } catch {}
+    // Wait a bit for daemon to clean up
+    try { execSync('sleep 0.2'); } catch {}
     fs.rmSync(tempDir, { recursive: true, force: true });
   });
 
@@ -112,12 +122,17 @@ describe('hypercard search', () => {
     }
   });
 
-  it('errors with --semantic flag', () => {
-    expect(() => runCLI('search "test" --semantic', tempDir)).toThrow(/not yet implemented/i);
+  it('errors with --semantic flag when no embeddings', () => {
+    expect(() => runCLI('search "test" --semantic', tempDir)).toThrow(/embeddings not available/i);
   });
 
-  it('errors with --hybrid flag', () => {
-    expect(() => runCLI('search "test" --hybrid', tempDir)).toThrow(/not yet implemented/i);
+  it('falls back to bm25 when --hybrid but no embeddings', () => {
+    const output = runCLI('search "crimson" --hybrid', tempDir);
+    const result = parseYaml(output);
+
+    // Without embeddings, hybrid falls back to bm25
+    expect(result.mode).toBe('bm25');
+    expect(result.count).toBeGreaterThan(0);
   });
 
   it('filters by --where', () => {
@@ -144,6 +159,7 @@ function runCLI(command: string, cwd: string): string {
       cwd,
       encoding: 'utf-8',
       stdio: ['pipe', 'pipe', 'pipe'],
+      timeout: 15000,
     });
     return result.trim();
   } catch (error) {

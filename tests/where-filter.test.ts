@@ -25,7 +25,8 @@ describe('WHERE filter functionality', () => {
         tags        TEXT DEFAULT '[]',
         content     TEXT NOT NULL,
         frontmatter TEXT DEFAULT '{}',
-        mtime       REAL NOT NULL
+        mtime       REAL NOT NULL,
+        content_hash TEXT DEFAULT ''
       );
 
       CREATE VIRTUAL TABLE IF NOT EXISTS cards_fts USING fts5(
@@ -93,6 +94,7 @@ describe('WHERE filter functionality', () => {
     content: `Content for ${id}`,
     frontmatter,
     mtime: Date.now(),
+    content_hash: '',
   });
 
   describe('getCardsByWhere', () => {

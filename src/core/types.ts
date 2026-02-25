@@ -7,6 +7,7 @@ export interface ICard {
   content: string;
   frontmatter: Record<string, unknown>;
   mtime: number;
+  content_hash: string;
 }
 
 export interface IEdge {
@@ -69,7 +70,11 @@ export interface IIndexStats {
   cards_updated: number;
   cards_deleted: number;
   edges: number;
+  embeddings_generated?: number;
+  embeddings_skipped?: number;
 }
+
+export type IProgressCallback = (phase: string, current: number, total: number) => void;
 
 export interface IStaleCheck {
   stale: string[];

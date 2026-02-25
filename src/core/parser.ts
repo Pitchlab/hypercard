@@ -1,5 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
+import { createHash } from 'node:crypto';
 import matter from 'gray-matter';
 import type { ICard, IParsedLink } from './types.js';
 import { deriveCardId, deriveCardType } from '../util/paths.js';
@@ -46,6 +47,8 @@ export function parseMarkdownFile(filePath: string, projectRoot: string): ICard 
   const filename = path.basename(filePath);
   const title = extractTitle(content, filename);
 
+  const content_hash = computeContentHash(title, content, tags, frontmatterData as Record<string, unknown>);
+
   return {
     id,
     path: id + '.md',
@@ -55,5 +58,17 @@ export function parseMarkdownFile(filePath: string, projectRoot: string): ICard 
     content,
     frontmatter: frontmatterData as Record<string, unknown>,
     mtime: stat.mtimeMs,
+    content_hash,
   };
+}
+
+export function computeContentHash(
+  title: string,
+  content: string,
+  tags: string[],
+  frontmatter: Record<string, unknown>,
+): string {
+  return createHash('sha256')
+    .update(title + content + JSON.stringify(tags) + JSON.stringify(frontmatter))
+    .digest('hex');
 }

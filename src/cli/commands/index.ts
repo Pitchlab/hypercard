@@ -1,8 +1,14 @@
-import path from 'node:path';
-import { initDatabase } from '../../core/db.js';
-import { indexAllCards, indexSingleCard, checkStaleness } from '../../core/indexer.js';
 import { findProjectRoot } from '../../util/paths.js';
+import { sendCommand } from '../client.js';
 import { outputYaml } from '../../util/yaml.js';
+
+function progressBar(current: number, total: number, width = 30): string {
+  const ratio = current / total;
+  const filled = Math.round(ratio * width);
+  const bar = '\u2588'.repeat(filled) + '\u2591'.repeat(width - filled);
+  const pct = Math.round(ratio * 100);
+  return `[${bar}] ${pct}% (${current}/${total})`;
+}
 
 export async function indexCommand(options: { only?: string; check?: boolean }): Promise<void> {
   const projectRoot = findProjectRoot();
@@ -11,28 +17,33 @@ export async function indexCommand(options: { only?: string; check?: boolean }):
     process.exit(1);
   }
 
-  const dbPath = path.join(projectRoot, '.hypercard', 'hypercard.db');
-  const db = initDatabase(dbPath);
-
   try {
-    if (options.check) {
-      const result = checkStaleness(projectRoot, db);
-      outputYaml({
-        stale: result.stale.length,
-        stale_cards: result.stale,
-        missing: result.missing.length,
-        missing_cards: result.missing,
-        new: result.new_files.length,
-        new_files: result.new_files,
-      });
-    } else if (options.only) {
-      indexSingleCard(options.only, projectRoot, db);
-      outputYaml({ indexed: options.only });
-    } else {
-      const stats = indexAllCards(projectRoot, db);
-      outputYaml(stats);
+    if (!options.check && process.stderr.isTTY) {
+      process.stderr.write(options.only ? `Indexing ${options.only}...\n` : 'Indexing...\n');
+    } else if (!options.check) {
+      process.stderr.write(options.only ? `Indexing ${options.only}...` : 'Indexing all cards...');
     }
-  } finally {
-    db.close();
+
+    const onProgress = process.stderr.isTTY
+      ? (phase: string, current: number, total: number) => {
+          process.stderr.write(`\r  ${phase}: ${progressBar(current, total)}`);
+          if (current === total) process.stderr.write('\n');
+        }
+      : undefined;
+
+    const data = await sendCommand(projectRoot, 'index', {
+      only: options.only,
+      check: options.check,
+    }, onProgress) as Record<string, unknown>;
+
+    if (!options.check && !process.stderr.isTTY) {
+      process.stderr.write(' done.\n');
+    }
+
+    outputYaml(data);
+  } catch (err: unknown) {
+    if (!options.check) process.stderr.write(' failed.\n');
+    process.stderr.write(`Error: ${err instanceof Error ? err.message : String(err)}\n`);
+    process.exit(1);
   }
 }

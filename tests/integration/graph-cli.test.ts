@@ -17,6 +17,16 @@ describe('Graph CLI Integration Tests', () => {
   });
 
   afterEach(() => {
+    // Kill daemon if running
+    try {
+      const pidPath = path.join(tempDir, '.hypercard', 'daemon.pid');
+      if (fs.existsSync(pidPath)) {
+        const pid = parseInt(fs.readFileSync(pidPath, 'utf-8').trim(), 10);
+        if (!isNaN(pid)) process.kill(pid, 'SIGTERM');
+      }
+    } catch {}
+    // Wait a bit for daemon to clean up
+    try { execSync('sleep 0.2'); } catch {}
     fs.rmSync(tempDir, { recursive: true, force: true });
   });
 
@@ -150,6 +160,7 @@ function runCLI(command: string, cwd: string): string {
       cwd,
       encoding: 'utf-8',
       stdio: ['pipe', 'pipe', 'pipe'],
+      timeout: 15000,
     });
     return result.trim();
   } catch (error) {

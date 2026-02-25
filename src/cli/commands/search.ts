@@ -1,6 +1,5 @@
-import path from 'node:path';
-import { initDatabase, searchCardsWithScores } from '../../core/db.js';
 import { findProjectRoot } from '../../util/paths.js';
+import { sendCommand } from '../client.js';
 import { outputYaml } from '../../util/yaml.js';
 
 interface ISearchOptions {
@@ -14,55 +13,37 @@ interface ISearchOptions {
 }
 
 export async function searchCommand(query: string, options: ISearchOptions): Promise<void> {
-  if (options.semantic) {
-    process.stderr.write('Error: Semantic search not yet implemented (Phase 4)\n');
-    process.exit(1);
-  }
-  if (options.hybrid) {
-    process.stderr.write('Error: Hybrid search not yet implemented (Phase 4)\n');
-    process.exit(1);
-  }
-
   const projectRoot = findProjectRoot();
   if (!projectRoot) {
     process.stderr.write('Error: Not in a HyperCard project (no .hypercard/ found)\n');
     process.exit(1);
   }
 
-  const dbPath = path.join(projectRoot, '.hypercard', 'hypercard.db');
-  const db = initDatabase(dbPath);
+  let mode = 'hybrid'; // default: hybrid (auto-falls back to bm25 if no embeddings)
+  if (options.bm25) mode = 'bm25';
+  if (options.semantic) mode = 'semantic';
+  if (options.hybrid) mode = 'hybrid';
+
+  const limit = options.limit ? parseInt(options.limit, 10) : 10;
 
   try {
-    // Parse --where filters
-    const whereFilters: Record<string, string> = {};
-    if (options.where && options.where.length > 0) {
-      for (const filter of options.where) {
-        const match = filter.match(/^([^=]+)=(.*)$/);
-        if (!match) {
-          process.stderr.write(`Error: Invalid --where format "${filter}". Expected key=value\n`);
-          process.exit(1);
-        }
-        const [, key, value] = match;
-        whereFilters[key.trim()] = value.trim();
-      }
-    }
-
-    const limit = options.limit ? parseInt(options.limit, 10) : 10;
-
-    const results = searchCardsWithScores(db, query, {
+    const data = await sendCommand(projectRoot, 'search', {
+      query,
       type: options.type,
       tag: options.tag,
-      where: Object.keys(whereFilters).length > 0 ? whereFilters : undefined,
+      where: options.where,
       limit,
-    });
+      mode,
+    }) as Record<string, unknown>;
 
-    outputYaml({
-      query,
-      mode: 'bm25',
-      count: results.length,
-      results,
-    });
-  } finally {
-    db.close();
+    if (data.warning) {
+      process.stderr.write(`Warning: ${data.warning}\n`);
+      delete data.warning;
+    }
+
+    outputYaml(data);
+  } catch (err: unknown) {
+    process.stderr.write(`Error: ${err instanceof Error ? err.message : String(err)}\n`);
+    process.exit(1);
   }
 }

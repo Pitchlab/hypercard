@@ -2,12 +2,14 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { glob } from 'glob';
 import type Database from 'better-sqlite3';
-import type { IIndexStats, IStaleCheck } from './types.js';
+import type { IIndexStats, IStaleCheck, IProgressCallback } from './types.js';
 import { parseMarkdownFile, extractLinks } from './parser.js';
-import { upsertCard, deleteCard, deleteEdgesForCard, insertEdge, getAllCards } from './db.js';
+import { upsertCard, deleteCard, deleteEdgesForCard, insertEdge, getAllCards, upsertEmbedding, deleteEmbedding, getContentHash } from './db.js';
 import { deriveCardId } from '../util/paths.js';
+import type { IEmbedder } from './embedder.js';
+import { formatCardText, serializeEmbedding } from './embedder.js';
 
-export function indexAllCards(projectRoot: string, db: Database.Database): IIndexStats {
+export async function indexAllCards(projectRoot: string, db: Database.Database, embedder?: IEmbedder, onProgress?: IProgressCallback): Promise<IIndexStats> {
   const files = glob.sync('**/*.md', {
     cwd: projectRoot,
     ignore: ['.hypercard/**', 'node_modules/**', '**/.*'],
@@ -21,14 +23,24 @@ export function indexAllCards(projectRoot: string, db: Database.Database): IInde
   let cards_added = 0;
   let cards_updated = 0;
   let edges = 0;
+  let embeddings_skipped = 0;
+  const cardTexts: { id: string; text: string }[] = [];
 
   const transaction = db.transaction(() => {
     const indexedIds = new Set<string>();
+    let fileIndex = 0;
 
     for (const relFile of files) {
+      fileIndex++;
+      if (onProgress) onProgress('indexing', fileIndex, files.length);
+
       const absPath = path.join(projectRoot, relFile);
       const card = parseMarkdownFile(absPath, projectRoot);
       indexedIds.add(card.id);
+
+      // Check if content actually changed by comparing SHA hashes
+      const storedHash = getContentHash(db, card.id);
+      const contentChanged = storedHash !== card.content_hash;
 
       if (existingIds.has(card.id)) {
         cards_updated++;
@@ -49,6 +61,15 @@ export function indexAllCards(projectRoot: string, db: Database.Database): IInde
         });
         edges++;
       }
+
+      // Only collect card text for embedding when content actually changed
+      if (embedder) {
+        if (contentChanged) {
+          cardTexts.push({ id: card.id, text: formatCardText(card) });
+        } else {
+          embeddings_skipped++;
+        }
+      }
     }
 
     // Remove cards whose files were deleted
@@ -56,6 +77,7 @@ export function indexAllCards(projectRoot: string, db: Database.Database): IInde
     for (const existingId of existingIds) {
       if (!indexedIds.has(existingId)) {
         deleteCard(db, existingId);
+        deleteEmbedding(db, existingId);
         cards_deleted++;
       }
     }
@@ -63,12 +85,33 @@ export function indexAllCards(projectRoot: string, db: Database.Database): IInde
     return { cards_added, cards_updated, cards_deleted, edges };
   });
 
-  return transaction();
+  const stats = transaction();
+
+  // Generate embeddings only for changed cards (async, after transaction)
+  let embeddings_generated = 0;
+  if (embedder && cardTexts.length > 0) {
+    for (let i = 0; i < cardTexts.length; i++) {
+      if (onProgress) onProgress('embedding', i + 1, cardTexts.length);
+      try {
+        const vec = await embedder.generateEmbedding(cardTexts[i].text);
+        upsertEmbedding(db, cardTexts[i].id, serializeEmbedding(vec));
+        embeddings_generated++;
+      } catch {
+        // Skip failed embeddings silently
+      }
+    }
+  }
+
+  return { ...stats, embeddings_generated, embeddings_skipped };
 }
 
-export function indexSingleCard(filePath: string, projectRoot: string, db: Database.Database): void {
+export async function indexSingleCard(filePath: string, projectRoot: string, db: Database.Database, embedder?: IEmbedder): Promise<void> {
   const absPath = path.isAbsolute(filePath) ? filePath : path.join(projectRoot, filePath);
   const card = parseMarkdownFile(absPath, projectRoot);
+
+  // Check if content actually changed by comparing SHA hashes
+  const storedHash = getContentHash(db, card.id);
+  const contentChanged = storedHash !== card.content_hash;
 
   const transaction = db.transaction(() => {
     upsertCard(db, card);
@@ -86,10 +129,22 @@ export function indexSingleCard(filePath: string, projectRoot: string, db: Datab
   });
 
   transaction();
+
+  // Only generate embedding when content actually changed
+  if (embedder && contentChanged) {
+    try {
+      const text = formatCardText(card);
+      const vec = await embedder.generateEmbedding(text);
+      upsertEmbedding(db, card.id, serializeEmbedding(vec));
+    } catch {
+      // Skip failed embedding silently
+    }
+  }
 }
 
 export function removeCard(cardId: string, db: Database.Database): void {
   deleteCard(db, cardId);
+  deleteEmbedding(db, cardId);
 }
 
 export function checkStaleness(projectRoot: string, db: Database.Database): IStaleCheck {

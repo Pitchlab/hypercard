@@ -10,7 +10,8 @@ CREATE TABLE IF NOT EXISTS cards (
   tags        TEXT DEFAULT '[]',
   content     TEXT NOT NULL,
   frontmatter TEXT DEFAULT '{}',
-  mtime       REAL NOT NULL
+  mtime       REAL NOT NULL,
+  content_hash TEXT
 );
 
 CREATE VIRTUAL TABLE IF NOT EXISTS cards_fts USING fts5(
@@ -63,14 +64,22 @@ export function initDatabase(dbPath: string): Database.Database {
   db.pragma('journal_mode = WAL');
   db.pragma('foreign_keys = ON');
   db.exec(SCHEMA);
+
+  // Migration: add content_hash column to existing DBs that lack it
+  const columns = db.pragma('table_info(cards)') as { name: string }[];
+  const hasContentHash = columns.some((col) => col.name === 'content_hash');
+  if (!hasContentHash) {
+    db.exec('ALTER TABLE cards ADD COLUMN content_hash TEXT');
+  }
+
   return db;
 }
 
 // --- Card CRUD ---
 
 const UPSERT_CARD = `
-  INSERT INTO cards (id, path, title, type, tags, content, frontmatter, mtime)
-  VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+  INSERT INTO cards (id, path, title, type, tags, content, frontmatter, mtime, content_hash)
+  VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
   ON CONFLICT(id) DO UPDATE SET
     path = excluded.path,
     title = excluded.title,
@@ -78,7 +87,8 @@ const UPSERT_CARD = `
     tags = excluded.tags,
     content = excluded.content,
     frontmatter = excluded.frontmatter,
-    mtime = excluded.mtime
+    mtime = excluded.mtime,
+    content_hash = excluded.content_hash
 `;
 
 export function upsertCard(db: Database.Database, card: ICard): void {
@@ -91,7 +101,13 @@ export function upsertCard(db: Database.Database, card: ICard): void {
     card.content,
     JSON.stringify(card.frontmatter),
     card.mtime,
+    card.content_hash,
   );
+}
+
+export function getContentHash(db: Database.Database, cardId: string): string | null {
+  const row = db.prepare('SELECT content_hash FROM cards WHERE id = ?').get(cardId) as { content_hash: string | null } | undefined;
+  return row?.content_hash ?? null;
 }
 
 export function deleteCard(db: Database.Database, cardId: string): void {
@@ -408,6 +424,31 @@ export function getCardCount(db: Database.Database): number {
   return (db.prepare('SELECT COUNT(*) as c FROM cards').get() as { c: number }).c;
 }
 
+// --- Embedding CRUD ---
+
+export function upsertEmbedding(db: Database.Database, cardId: string, embedding: Buffer): void {
+  db.prepare(
+    'INSERT INTO cards_vec (id, embedding) VALUES (?, ?) ON CONFLICT(id) DO UPDATE SET embedding = excluded.embedding',
+  ).run(cardId, embedding);
+}
+
+export function getEmbedding(db: Database.Database, cardId: string): Buffer | null {
+  const row = db.prepare('SELECT embedding FROM cards_vec WHERE id = ?').get(cardId) as { embedding: Buffer } | undefined;
+  return row?.embedding ?? null;
+}
+
+export function getAllEmbeddings(db: Database.Database): { id: string; embedding: Buffer }[] {
+  return db.prepare('SELECT id, embedding FROM cards_vec').all() as { id: string; embedding: Buffer }[];
+}
+
+export function deleteEmbedding(db: Database.Database, cardId: string): void {
+  db.prepare('DELETE FROM cards_vec WHERE id = ?').run(cardId);
+}
+
+export function getEmbeddingCount(db: Database.Database): number {
+  return (db.prepare('SELECT COUNT(*) as c FROM cards_vec').get() as { c: number }).c;
+}
+
 // --- Helpers ---
 
 function rowToCard(row: Record<string, unknown>): ICard {
@@ -420,5 +461,6 @@ function rowToCard(row: Record<string, unknown>): ICard {
     content: row.content as string,
     frontmatter: JSON.parse(row.frontmatter as string),
     mtime: row.mtime as number,
+    content_hash: (row.content_hash as string) ?? '',
   };
 }
