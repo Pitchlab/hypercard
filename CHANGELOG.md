@@ -1,5 +1,17 @@
 # Changelog
 
+## [Unreleased] - 2026-04-10
+
+### Changed
+- **Repo**: Extracted to its own standalone repository from the `pitchlab-tools` monorepo. Git history preserved via subtree split.
+- **Tests**: Integration test `CLI_PATH` now resolves via `process.cwd()` instead of a hardcoded absolute path.
+- **Package**: Added `repository`, `homepage`, `bugs`, `keywords`, `author`, and `files` fields to `package.json`. Version bumped to `0.3.0` to match implementation.
+- **License**: Added `LICENSE` file (MIT).
+- **Docs**: README and CLAUDE.md updated to drop `hypercard-cli` naming.
+
+### Known issues
+- `tests/indexer.test.ts > checkStaleness() > detects multiple types of staleness simultaneously` is flaky due to mtime precision on fast filesystems. Passes in isolation, occasionally fails in full-suite runs. Not a regression from the extraction.
+
 ## [0.3.0] - 2026-02-24
 
 ### Added

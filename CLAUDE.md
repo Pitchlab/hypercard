@@ -1,4 +1,4 @@
-# CLAUDE.md — hypercard-cli
+# CLAUDE.md — hypercard
 
 ## Project Overview
 

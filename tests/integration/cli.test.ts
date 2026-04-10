@@ -5,7 +5,7 @@ import os from 'node:os';
 import { execSync } from 'node:child_process';
 import jsYaml from 'js-yaml';
 
-const CLI_PATH = path.resolve('/Users/erikvanderpluijm/Sites/tools/pitchlab-tools/hypercard-cli/dist/cli/index.js');
+const CLI_PATH = path.resolve(process.cwd(), 'dist/cli/index.js');
 
 describe('CLI Integration Tests', () => {
   let tempDir: string;

@@ -7,7 +7,8 @@ A CLI tool that turns a folder of interconnected markdown files into a queryable
 ## Install
 
 ```bash
-# From the hypercard-cli directory:
+# From the repo root:
+pnpm install && pnpm build
 npm link    # Makes 'hypercard' available globally
 
 # Then from any project folder:
