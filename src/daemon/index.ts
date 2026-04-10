@@ -20,12 +20,12 @@ export async function startDaemon(projectRoot: string): Promise<void> {
   process.stderr.write(`[daemon] starting for ${projectRoot}\n`);
 
   // Load config
-  const configPath = path.join(projectRoot, '.hypercard', 'config.yaml');
+  const configPath = path.join(projectRoot, '.maas', 'config.yaml');
   const configContent = fs.readFileSync(configPath, 'utf-8');
   const config = jsYaml.load(configContent) as IConfig;
 
   // Open database
-  const dbPath = path.join(projectRoot, '.hypercard', 'hypercard.db');
+  const dbPath = path.join(projectRoot, '.maas', 'maas.db');
   const db = initDatabase(dbPath);
 
   // Create handler
@@ -40,7 +40,7 @@ export async function startDaemon(projectRoot: string): Promise<void> {
   });
 
   // Socket path
-  const socketPath = path.join(projectRoot, '.hypercard', config.daemon?.socket ?? 'hypercard.sock');
+  const socketPath = path.join(projectRoot, '.maas', config.daemon?.socket ?? 'maas.sock');
 
   // Cleanup stale files
   cleanupDaemonFiles(projectRoot);
@@ -78,7 +78,9 @@ export async function startDaemon(projectRoot: string): Promise<void> {
   // Start watcher
   const watcherConfig: IWatcherConfig = {
     include: config.watch?.include ?? ['**/*.md'],
-    exclude: config.watch?.exclude ?? ['node_modules/**', '.hypercard/**', '**/.*'],
+    exclude: (config.watch?.exclude ?? ['**/node_modules/**', '.maas/**', '**/.*']).map((p) =>
+      p === 'node_modules/**' ? '**/node_modules/**' : p,
+    ),
     debounce: config.daemon?.debounce ?? 200,
   };
   const watcher = startWatcher(projectRoot, db, watcherConfig, () => idleTimer.reset());

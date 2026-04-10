@@ -21,7 +21,7 @@ export async function sendCommand(
   args: Record<string, unknown> = {},
   onProgress?: IProgressCallback,
 ): Promise<unknown> {
-  const socketPath = path.join(projectRoot, '.hypercard', 'hypercard.sock');
+  const socketPath = path.join(projectRoot, '.maas', 'maas.sock');
 
   // If daemon is already running, use it
   if (fs.existsSync(socketPath) && isDaemonRunning(projectRoot)) {
@@ -138,7 +138,7 @@ export async function ensureDaemon(projectRoot: string): Promise<void> {
   child.unref();
 
   // Wait for ready signal
-  const readyPath = path.join(projectRoot, '.hypercard', 'daemon.ready');
+  const readyPath = path.join(projectRoot, '.maas', 'daemon.ready');
   const maxWait = 5000;
   const interval = 50;
   let elapsed = 0;
@@ -157,7 +157,7 @@ export async function ensureDaemon(projectRoot: string): Promise<void> {
 
 export async function sendNotify(projectRoot: string, filePath: string): Promise<void> {
   try {
-    const socketPath = path.join(projectRoot, '.hypercard', 'hypercard.sock');
+    const socketPath = path.join(projectRoot, '.maas', 'maas.sock');
     if (!fs.existsSync(socketPath)) return; // Daemon not running, silently skip
     await sendToSocket(socketPath, 'index', { only: filePath });
   } catch {
@@ -173,7 +173,7 @@ async function handleLocally(
 ): Promise<unknown> {
   const { initDatabase } = await import('../core/db.js');
   const { CommandHandler } = await import('../daemon/handler.js');
-  const dbPath = path.join(projectRoot, '.hypercard', 'hypercard.db');
+  const dbPath = path.join(projectRoot, '.maas', 'maas.db');
   const db = initDatabase(dbPath);
   try {
     const handler = new CommandHandler({ db, projectRoot });

@@ -12,7 +12,7 @@ describe('indexer', () => {
 
   beforeEach(() => {
     // Create temp directory
-    tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'hypercard-test-'));
+    tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'maas-test-'));
 
     // Create fixture markdown files
     createFixtures(tempDir);

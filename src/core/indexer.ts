@@ -1,18 +1,49 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { glob } from 'glob';
+import jsYaml from 'js-yaml';
 import type Database from 'better-sqlite3';
-import type { IIndexStats, IStaleCheck, IProgressCallback } from './types.js';
+import type { IIndexStats, IStaleCheck, IProgressCallback, IConfig } from './types.js';
 import { parseMarkdownFile, extractLinks } from './parser.js';
 import { upsertCard, deleteCard, deleteEdgesForCard, insertEdge, getAllCards, upsertEmbedding, deleteEmbedding, getContentHash } from './db.js';
 import { deriveCardId } from '../util/paths.js';
 import type { IEmbedder } from './embedder.js';
 import { formatCardText, serializeEmbedding } from './embedder.js';
 
+const DEFAULT_IGNORE = ['.maas/**', '**/node_modules/**', '**/.*'];
+
+/**
+ * Load ignore patterns from .maas/config.yaml watch.exclude, falling back to
+ * defaults if the config is missing or malformed. Always unions with '.maas/**'
+ * and '**\/node_modules/**' so those are never accidentally crawled.
+ */
+export function loadIgnorePatterns(projectRoot: string): string[] {
+  const configPath = path.join(projectRoot, '.maas', 'config.yaml');
+  const required = ['.maas/**', '**/node_modules/**'];
+  try {
+    if (fs.existsSync(configPath)) {
+      const raw = fs.readFileSync(configPath, 'utf-8');
+      const config = jsYaml.load(raw) as IConfig | undefined;
+      const configured = config?.watch?.exclude;
+      if (Array.isArray(configured) && configured.length > 0) {
+        // Normalize legacy top-level 'node_modules/**' to recursive form.
+        const normalized = configured.map((p) => (p === 'node_modules/**' ? '**/node_modules/**' : p));
+        for (const req of required) {
+          if (!normalized.includes(req)) normalized.push(req);
+        }
+        return normalized;
+      }
+    }
+  } catch {
+    // fall through to defaults
+  }
+  return DEFAULT_IGNORE;
+}
+
 export async function indexAllCards(projectRoot: string, db: Database.Database, embedder?: IEmbedder, onProgress?: IProgressCallback): Promise<IIndexStats> {
   const files = glob.sync('**/*.md', {
     cwd: projectRoot,
-    ignore: ['.hypercard/**', 'node_modules/**', '**/.*'],
+    ignore: loadIgnorePatterns(projectRoot),
     absolute: false,
   });
 
@@ -168,7 +199,7 @@ export function checkStaleness(projectRoot: string, db: Database.Database): ISta
   const existingIds = new Set(cards.map((c) => c.id));
   const files = glob.sync('**/*.md', {
     cwd: projectRoot,
-    ignore: ['.hypercard/**', 'node_modules/**', '**/.*'],
+    ignore: loadIgnorePatterns(projectRoot),
     absolute: false,
   });
 

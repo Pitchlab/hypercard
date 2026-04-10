@@ -14,7 +14,7 @@ interface IGraphCommandOptions {
 export async function graphCommand(id: string, options: IGraphCommandOptions): Promise<void> {
   const projectRoot = findProjectRoot();
   if (!projectRoot) {
-    process.stderr.write('Error: Not in a HyperCard project (no .hypercard/ found)\n');
+    process.stderr.write('Error: Not in a Maas project (no .maas/ found)\n');
     process.exit(1);
   }
 

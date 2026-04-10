@@ -2,12 +2,26 @@
 
 ## [Unreleased] - 2026-04-10
 
+### Renamed
+- **Project renamed from `hypercard` → `maas`** to avoid Apple's HyperCard trademark.
+  - CLI binary: `hypercard` → `maas`
+  - Project data directory: `.hypercard/` → `.maas/`
+  - DB file: `hypercard.db` → `maas.db`
+  - Socket file: `hypercard.sock` → `maas.sock`
+  - Global model cache: `~/.hypercard/models/` → `~/.maas/models/`
+  - All source, tests, docs, and error messages updated.
+
+### Fixed
+- **Indexer now respects `.maas/config.yaml` `watch.exclude`** patterns. Previously the ignore list was hardcoded in `indexer.ts` and any user config was silently ignored.
+- **Nested `node_modules/` directories are now excluded.** The default pattern was `node_modules/**` which only matched top-level directories, so nested installs like `frontend/node_modules/` leaked thousands of irrelevant markdown files into the index. Changed to `**/node_modules/**`. Legacy `node_modules/**` entries in existing configs are auto-normalized at runtime.
+- **Integration test teardown** — added retry loop around `fs.rmSync` to handle ENOTEMPTY when the daemon is still releasing file handles. Resolves flaky `search-cli` / `cli` / `graph-cli` test failures.
+
 ### Changed
 - **Repo**: Extracted to its own standalone repository from the `pitchlab-tools` monorepo. Git history preserved via subtree split.
 - **Tests**: Integration test `CLI_PATH` now resolves via `process.cwd()` instead of a hardcoded absolute path.
 - **Package**: Added `repository`, `homepage`, `bugs`, `keywords`, `author`, and `files` fields to `package.json`. Version bumped to `0.3.0` to match implementation.
 - **License**: Added `LICENSE` file (MIT).
-- **Docs**: README and CLAUDE.md updated to drop `hypercard-cli` naming.
+- **Docs**: README and CLAUDE.md updated to drop `maas-cli` naming.
 
 ### Known issues
 - `tests/indexer.test.ts > checkStaleness() > detects multiple types of staleness simultaneously` is flaky due to mtime precision on fast filesystems. Passes in isolation, occasionally fails in full-suite runs. Not a regression from the extraction.
@@ -15,7 +29,7 @@
 ## [0.3.0] - 2026-02-24
 
 ### Added
-- **CLI**: `hypercard graph <id>` — BFS graph traversal of card neighborhoods
+- **CLI**: `maas graph <id>` — BFS graph traversal of card neighborhoods
   - `--depth` (1-3), `--max` (1-50) for traversal control
   - `--out` / `--in` for directional filtering
   - `--exclude` to skip card types
@@ -29,19 +43,19 @@
 ## [0.2.0] - 2026-02-23
 
 ### Added
-- **CLI**: `hypercard convert [file]` — convert markdown files to HyperCard format (frontmatter, link resolution, filename fixes)
+- **CLI**: `maas convert [file]` — convert markdown files to Maas format (frontmatter, link resolution, filename fixes)
   - `--all` flag to process all .md files
   - `--write` flag to apply changes (dry-run by default)
   - Resolves bare wiki-links `[[rebels]]` to full paths `[[factions/rebels]]`
   - Detects filename issues (spaces, uppercase, no type directory)
   - Renames files and updates cross-references with `--write`
-- **CLI**: `hypercard search <query>` — BM25 full-text search with scored results and snippets
+- **CLI**: `maas search <query>` — BM25 full-text search with scored results and snippets
   - `--type`, `--tag`, `--where` filters
   - `--limit` for result count (default 10)
   - `--bm25` flag (default), `--semantic` and `--hybrid` stubs for Phase 4
   - Normalized scores (0-1) and context-aware snippet generation
-- **CLI**: `hypercard ls --where key=value` — filter cards by frontmatter fields (repeatable, AND logic)
-- **CLI**: `hypercard ls --search "query"` — full-text search within card listing
+- **CLI**: `maas ls --where key=value` — filter cards by frontmatter fields (repeatable, AND logic)
+- **CLI**: `maas ls --search "query"` — full-text search within card listing
 - **Core**: `searchCardsWithScores()` — BM25 search returning ISearchResult with scores and snippets
 - **Core**: `converter.ts` — pure conversion logic for frontmatter, link resolution, filename checks
 - **Docs**: `docs/plan.md` — implementation plan for Phases 2-6
@@ -50,19 +64,19 @@
 ## [0.1.0] - 2026-02-23
 
 ### Added
-- Initial Phase 1 implementation of HyperCard CLI
+- Initial Phase 1 implementation of Maas CLI
 - **Core**: Markdown parser with frontmatter extraction (gray-matter) and [[wiki-link]] parsing
 - **Core**: SQLite database layer with FTS5 full-text search, WAL mode, edge tracking
 - **Core**: Filesystem indexer with staleness detection (mtime comparison)
-- **CLI**: `hypercard init` — initialize project, create .hypercard/, index all .md files
-- **CLI**: `hypercard ls` — list cards with --type, --tag, --orphans filters
-- **CLI**: `hypercard get <id>` — fetch card by exact or fuzzy shorthand ID
-- **CLI**: `hypercard index` — full reindex, --only single file, --check dry run
+- **CLI**: `maas init` — initialize project, create .maas/, index all .md files
+- **CLI**: `maas ls` — list cards with --type, --tag, --orphans filters
+- **CLI**: `maas get <id>` — fetch card by exact or fuzzy shorthand ID
+- **CLI**: `maas index` — full reindex, --only single file, --check dry run
 - **Utils**: Fuzzy ID matching for shorthand card lookups
 - **Utils**: YAML output formatting for all commands
-- **Utils**: Project root detection (walk up to find .hypercard/)
+- **Utils**: Project root detection (walk up to find .maas/)
 - Machine-readable help text for all commands
 - README with Claude Code integration section (copy-paste into CLAUDE.md/skill.md)
 - 109 passing tests (unit + integration)
-- Product specification (docs/hypercard-prd.md) with multi-project daemon support
+- Product specification (docs/maas-prd.md) with multi-project daemon support
 - Full implementation plan for Phases 1-6 (docs/implementation-plan.md)

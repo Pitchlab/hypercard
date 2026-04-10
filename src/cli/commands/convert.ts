@@ -27,7 +27,7 @@ export async function convertCommand(file: string | undefined, options: IConvert
 
   // Try to load card IDs from DB for link resolution
   let allCardIds: string[] | undefined;
-  const dbPath = path.join(projectRoot, '.hypercard', 'hypercard.db');
+  const dbPath = path.join(projectRoot, '.maas', 'maas.db');
   if (fs.existsSync(dbPath)) {
     const db = initDatabase(dbPath);
     try {
@@ -42,7 +42,7 @@ export async function convertCommand(file: string | undefined, options: IConvert
   if (options.all) {
     const mdFiles = await glob('**/*.md', {
       cwd: projectRoot,
-      ignore: ['.hypercard/**', 'node_modules/**'],
+      ignore: ['.maas/**', 'node_modules/**'],
       absolute: true,
     });
     files = mdFiles.sort();

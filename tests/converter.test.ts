@@ -8,7 +8,7 @@ describe('convertFile', () => {
   let tempDir: string;
 
   beforeEach(() => {
-    tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'hypercard-converter-test-'));
+    tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'maas-converter-test-'));
   });
 
   afterEach(() => {

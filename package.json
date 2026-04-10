@@ -1,11 +1,11 @@
 {
-  "name": "hypercard",
+  "name": "maas",
   "version": "0.3.0",
   "description": "A CLI that turns a folder of interconnected markdown files into a queryable knowledge graph with hybrid search (BM25 + semantic). Built for Claude Code.",
   "type": "module",
   "main": "dist/cli/index.js",
   "bin": {
-    "hypercard": "dist/cli/index.js"
+    "maas": "dist/cli/index.js"
   },
   "files": [
     "dist",
@@ -38,11 +38,11 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/Pitchlab/hypercard.git"
+    "url": "git+https://github.com/Pitchlab/maas.git"
   },
-  "homepage": "https://github.com/Pitchlab/hypercard#readme",
+  "homepage": "https://github.com/Pitchlab/maas#readme",
   "bugs": {
-    "url": "https://github.com/Pitchlab/hypercard/issues"
+    "url": "https://github.com/Pitchlab/maas/issues"
   },
   "engines": {
     "node": ">=18.0.0"

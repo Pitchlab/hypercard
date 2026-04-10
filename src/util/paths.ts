@@ -5,7 +5,7 @@ export function findProjectRoot(startPath?: string): string | null {
   let dir = startPath ?? process.cwd();
 
   while (true) {
-    const candidate = path.join(dir, '.hypercard');
+    const candidate = path.join(dir, '.maas');
     if (fs.existsSync(candidate) && fs.statSync(candidate).isDirectory()) {
       return dir;
     }

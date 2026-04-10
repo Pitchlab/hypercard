@@ -4,7 +4,7 @@ import { sendNotify } from '../client.js';
 
 export async function notifyCommand(file: string): Promise<void> {
   const projectRoot = findProjectRoot();
-  if (!projectRoot) return; // Not in a HyperCard project, silently skip
+  if (!projectRoot) return; // Not in a Maas project, silently skip
 
   const relPath = path.relative(projectRoot, path.resolve(file));
   if (!relPath.endsWith('.md')) return; // Not a markdown file

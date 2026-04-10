@@ -7,11 +7,11 @@ import jsYaml from 'js-yaml';
 
 const CLI_PATH = path.resolve(process.cwd(), 'dist/cli/index.js');
 
-describe('hypercard convert', () => {
+describe('maas convert', () => {
   let tempDir: string;
 
   beforeEach(() => {
-    tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'hypercard-convert-test-'));
+    tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'maas-convert-test-'));
   });
 
   afterEach(() => {

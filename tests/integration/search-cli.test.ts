@@ -7,11 +7,11 @@ import jsYaml from 'js-yaml';
 
 const CLI_PATH = path.resolve(process.cwd(), 'dist/cli/index.js');
 
-describe('hypercard search', () => {
+describe('maas search', () => {
   let tempDir: string;
 
   beforeEach(() => {
-    tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'hypercard-search-test-'));
+    tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'maas-search-test-'));
     createFixtures(tempDir);
     runCLI('init', tempDir);
   });
@@ -19,7 +19,7 @@ describe('hypercard search', () => {
   afterEach(() => {
     // Kill daemon if running
     try {
-      const pidPath = path.join(tempDir, '.hypercard', 'daemon.pid');
+      const pidPath = path.join(tempDir, '.maas', 'daemon.pid');
       if (fs.existsSync(pidPath)) {
         const pid = parseInt(fs.readFileSync(pidPath, 'utf-8').trim(), 10);
         if (!isNaN(pid)) process.kill(pid, 'SIGTERM');
@@ -27,7 +27,15 @@ describe('hypercard search', () => {
     } catch {}
     // Wait a bit for daemon to clean up
     try { execSync('sleep 0.2'); } catch {}
-    fs.rmSync(tempDir, { recursive: true, force: true });
+    // Retry rmSync — daemon may still hold file handles briefly
+    for (let i = 0; i < 5; i++) {
+      try {
+        fs.rmSync(tempDir, { recursive: true, force: true });
+        break;
+      } catch {
+        try { execSync('sleep 0.2'); } catch {}
+      }
+    }
   });
 
   it('returns results with correct YAML structure', () => {
@@ -144,9 +152,9 @@ describe('hypercard search', () => {
   });
 
   it('fails when not in initialized project', () => {
-    const emptyDir = fs.mkdtempSync(path.join(os.tmpdir(), 'hypercard-search-empty-'));
+    const emptyDir = fs.mkdtempSync(path.join(os.tmpdir(), 'maas-search-empty-'));
     try {
-      expect(() => runCLI('search "test"', emptyDir)).toThrow(/not in a hypercard project/i);
+      expect(() => runCLI('search "test"', emptyDir)).toThrow(/not in a maas project/i);
     } finally {
       fs.rmSync(emptyDir, { recursive: true, force: true });
     }

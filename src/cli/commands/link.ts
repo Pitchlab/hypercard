@@ -10,13 +10,13 @@ import { outputYaml } from '../../util/yaml.js';
 export async function linkCommand(sourceId: string, targetId: string): Promise<void> {
   const projectRoot = findProjectRoot();
   if (!projectRoot) {
-    process.stderr.write('Error: Not in a HyperCard project (no .hypercard/ found)\n');
+    process.stderr.write('Error: Not in a Maas project (no .maas/ found)\n');
     process.exit(1);
   }
 
-  const dbPath = path.join(projectRoot, '.hypercard', 'hypercard.db');
+  const dbPath = path.join(projectRoot, '.maas', 'maas.db');
   if (!fs.existsSync(dbPath)) {
-    process.stderr.write('Error: No index found. Run "hypercard init" first.\n');
+    process.stderr.write('Error: No index found. Run "maas init" first.\n');
     process.exit(1);
   }
 

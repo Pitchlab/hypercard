@@ -12,7 +12,7 @@ describe('CLI Integration Tests', () => {
 
   beforeEach(() => {
     // Create temp directory
-    tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'hypercard-cli-test-'));
+    tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'maas-cli-test-'));
 
     // Create fixture markdown files
     createFixtures(tempDir);
@@ -21,7 +21,7 @@ describe('CLI Integration Tests', () => {
   afterEach(() => {
     // Kill daemon if running
     try {
-      const pidPath = path.join(tempDir, '.hypercard', 'daemon.pid');
+      const pidPath = path.join(tempDir, '.maas', 'daemon.pid');
       if (fs.existsSync(pidPath)) {
         const pid = parseInt(fs.readFileSync(pidPath, 'utf-8').trim(), 10);
         if (!isNaN(pid)) process.kill(pid, 'SIGTERM');
@@ -29,12 +29,19 @@ describe('CLI Integration Tests', () => {
     } catch {}
     // Wait a bit for daemon to clean up
     try { execSync('sleep 0.2'); } catch {}
-    // Clean up
-    fs.rmSync(tempDir, { recursive: true, force: true });
+    // Retry rmSync — daemon may still hold file handles briefly
+    for (let i = 0; i < 5; i++) {
+      try {
+        fs.rmSync(tempDir, { recursive: true, force: true });
+        break;
+      } catch {
+        try { execSync('sleep 0.2'); } catch {}
+      }
+    }
   });
 
-  describe('hypercard init', () => {
-    it('creates .hypercard/ directory and initializes project', () => {
+  describe('maas init', () => {
+    it('creates .maas/ directory and initializes project', () => {
       const output = runCLI('init', tempDir);
       const result = parseYaml(output);
 
@@ -48,18 +55,18 @@ describe('CLI Integration Tests', () => {
       expect(result.types).toContain('locations');
       expect(result.links).toBeGreaterThan(0);
 
-      // Verify .hypercard directory was created
-      const hypercardDir = path.join(tempDir, '.hypercard');
-      expect(fs.existsSync(hypercardDir)).toBe(true);
+      // Verify .maas directory was created
+      const maasDir = path.join(tempDir, '.maas');
+      expect(fs.existsSync(maasDir)).toBe(true);
 
       // Verify config.yaml was created
-      const configPath = path.join(hypercardDir, 'config.yaml');
+      const configPath = path.join(maasDir, 'config.yaml');
       expect(fs.existsSync(configPath)).toBe(true);
       const config = jsYaml.load(fs.readFileSync(configPath, 'utf-8')) as Record<string, unknown>;
       expect(config.root).toBe('.');
 
       // Verify database was created
-      const dbPath = path.join(hypercardDir, 'hypercard.db');
+      const dbPath = path.join(maasDir, 'maas.db');
       expect(fs.existsSync(dbPath)).toBe(true);
     });
 
@@ -87,7 +94,7 @@ describe('CLI Integration Tests', () => {
     });
   });
 
-  describe('hypercard ls', () => {
+  describe('maas ls', () => {
     beforeEach(() => {
       // Initialize project
       runCLI('init', tempDir);
@@ -227,7 +234,7 @@ describe('CLI Integration Tests', () => {
     });
   });
 
-  describe('hypercard get', () => {
+  describe('maas get', () => {
     beforeEach(() => {
       // Initialize project
       runCLI('init', tempDir);
@@ -290,7 +297,7 @@ describe('CLI Integration Tests', () => {
     });
   });
 
-  describe('hypercard index', () => {
+  describe('maas index', () => {
     beforeEach(() => {
       // Initialize project
       runCLI('init', tempDir);
@@ -376,19 +383,19 @@ describe('CLI Integration Tests', () => {
     it('fails when not in initialized project (ls)', () => {
       expect(() => {
         runCLI('ls', tempDir);
-      }).toThrow(/not in a hypercard project/i);
+      }).toThrow(/not in a maas project/i);
     });
 
     it('fails when not in initialized project (get)', () => {
       expect(() => {
         runCLI('get voss', tempDir);
-      }).toThrow(/not in a hypercard project/i);
+      }).toThrow(/not in a maas project/i);
     });
 
     it('fails when not in initialized project (index)', () => {
       expect(() => {
         runCLI('index', tempDir);
-      }).toThrow(/not in a hypercard project/i);
+      }).toThrow(/not in a maas project/i);
     });
 
     it('fails when getting nonexistent card', () => {

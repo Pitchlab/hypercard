@@ -13,7 +13,7 @@ function progressBar(current: number, total: number, width = 30): string {
 export async function indexCommand(options: { only?: string; check?: boolean }): Promise<void> {
   const projectRoot = findProjectRoot();
   if (!projectRoot) {
-    process.stderr.write('Error: Not in a HyperCard project (no .hypercard/ found)\n');
+    process.stderr.write('Error: Not in a Maas project (no .maas/ found)\n');
     process.exit(1);
   }
 
