@@ -9,7 +9,7 @@ interface ISuggestLinksOptions {
 export async function suggestLinksCommand(id: string, options: ISuggestLinksOptions): Promise<void> {
   const projectRoot = findProjectRoot();
   if (!projectRoot) {
-    process.stderr.write('Error: Not in a Maas project (no .maas/ found)\n');
+    process.stderr.write('Error: Not in a Hypercard project (no .hypercard/ found)\n');
     process.exit(1);
   }
 

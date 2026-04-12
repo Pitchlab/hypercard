@@ -1,10 +1,10 @@
-# CLAUDE.md — maas
+# CLAUDE.md — hypercard
 
 ## Project Overview
 
-**maas** — CLI tool that turns a folder of interconnected markdown files into a queryable knowledge graph with hybrid search (BM25 + semantic vectors). Companion tool for Claude Code.
+**hypercard** — CLI tool that turns a folder of interconnected markdown files into a queryable knowledge graph with hybrid search (BM25 + semantic vectors). Companion tool for Claude Code.
 
-Spec: `docs/maas-prd.md`
+Spec: `docs/hypercard-prd.md`
 
 ## Stack
 
@@ -36,9 +36,9 @@ pnpm lint             # Lint
 
 ## Key Design Rules
 
-- **One daemon per project root** — each `.maas/` gets its own daemon, socket, PID
-- **Model cache is global** — `~/.maas/models/`, shared across all projects
-- **Markdown files are source of truth** — maas is read/query/validate only, never writes content
+- **One daemon per project root** — each `.hypercard/` gets its own daemon, socket, PID
+- **Model cache is global** — `~/.hypercard/models/`, shared across all projects
+- **Markdown files are source of truth** — hypercard is read/query/validate only, never writes content
 - **Links are exact** — `[[type/card_id]]`, no fuzzy resolution
 - **ID = relative path minus .md** — `factions/crimson_order.md` → `factions/crimson_order`
 - **Type = first path segment** — `factions/northern/x.md` → type `factions`

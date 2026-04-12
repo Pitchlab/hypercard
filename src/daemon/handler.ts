@@ -186,11 +186,11 @@ export class CommandHandler implements ICommandHandler {
 
     if (!this.embedder || !hasEmbeddings) {
       if (mode === 'semantic') {
-        throw new Error('Embeddings not available. Run "maas index" to generate embeddings.');
+        throw new Error('Embeddings not available. Run "hypercard index" to generate embeddings.');
       }
       // hybrid without embedder/embeddings: fall back to bm25 with warning
       const results = searchCardsWithScores(this.db, query, searchOptions);
-      return { query, mode: 'bm25', count: results.length, results, warning: 'Embeddings not available — falling back to BM25. Run "maas index" with daemon to enable hybrid search.' };
+      return { query, mode: 'bm25', count: results.length, results, warning: 'Embeddings not available — falling back to BM25. Run "hypercard index" with daemon to enable hybrid search.' };
     }
 
     if (mode === 'semantic') {

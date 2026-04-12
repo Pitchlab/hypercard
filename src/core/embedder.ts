@@ -8,7 +8,7 @@ export interface IEmbedder {
   generateEmbeddings(texts: string[]): Promise<Float32Array[]>;
 }
 
-const DEFAULT_CACHE_DIR = join(homedir(), '.maas', 'models');
+const DEFAULT_CACHE_DIR = join(homedir(), '.hypercard', 'models');
 const MODEL_NAME = 'Xenova/all-MiniLM-L6-v2';
 
 let embedderInstance: IEmbedder | null = null;

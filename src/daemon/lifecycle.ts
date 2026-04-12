@@ -2,32 +2,32 @@ import fs from 'node:fs';
 import path from 'node:path';
 
 export function writePidFile(projectRoot: string): void {
-  const pidPath = path.join(projectRoot, '.maas', 'daemon.pid');
+  const pidPath = path.join(projectRoot, '.hypercard', 'daemon.pid');
   fs.writeFileSync(pidPath, String(process.pid), 'utf-8');
 }
 
 export function writeReadyFile(projectRoot: string): void {
-  const readyPath = path.join(projectRoot, '.maas', 'daemon.ready');
+  const readyPath = path.join(projectRoot, '.hypercard', 'daemon.ready');
   fs.writeFileSync(readyPath, String(Date.now()), 'utf-8');
 }
 
 export function removePidFile(projectRoot: string): void {
-  const pidPath = path.join(projectRoot, '.maas', 'daemon.pid');
+  const pidPath = path.join(projectRoot, '.hypercard', 'daemon.pid');
   try { fs.unlinkSync(pidPath); } catch {}
 }
 
 export function removeReadyFile(projectRoot: string): void {
-  const readyPath = path.join(projectRoot, '.maas', 'daemon.ready');
+  const readyPath = path.join(projectRoot, '.hypercard', 'daemon.ready');
   try { fs.unlinkSync(readyPath); } catch {}
 }
 
 export function removeSocketFile(projectRoot: string): void {
-  const socketPath = path.join(projectRoot, '.maas', 'maas.sock');
+  const socketPath = path.join(projectRoot, '.hypercard', 'hypercard.sock');
   try { fs.unlinkSync(socketPath); } catch {}
 }
 
 export function readPidFile(projectRoot: string): number | null {
-  const pidPath = path.join(projectRoot, '.maas', 'daemon.pid');
+  const pidPath = path.join(projectRoot, '.hypercard', 'daemon.pid');
   try {
     const content = fs.readFileSync(pidPath, 'utf-8').trim();
     const pid = parseInt(content, 10);

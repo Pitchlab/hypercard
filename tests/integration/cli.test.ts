@@ -12,7 +12,7 @@ describe('CLI Integration Tests', () => {
 
   beforeEach(() => {
     // Create temp directory
-    tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'maas-cli-test-'));
+    tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'hypercard-cli-test-'));
 
     // Create fixture markdown files
     createFixtures(tempDir);
@@ -21,7 +21,7 @@ describe('CLI Integration Tests', () => {
   afterEach(() => {
     // Kill daemon if running
     try {
-      const pidPath = path.join(tempDir, '.maas', 'daemon.pid');
+      const pidPath = path.join(tempDir, '.hypercard', 'daemon.pid');
       if (fs.existsSync(pidPath)) {
         const pid = parseInt(fs.readFileSync(pidPath, 'utf-8').trim(), 10);
         if (!isNaN(pid)) process.kill(pid, 'SIGTERM');
@@ -40,8 +40,8 @@ describe('CLI Integration Tests', () => {
     }
   });
 
-  describe('maas init', () => {
-    it('creates .maas/ directory and initializes project', () => {
+  describe('hypercard init', () => {
+    it('creates .hypercard/ directory and initializes project', () => {
       const output = runCLI('init', tempDir);
       const result = parseYaml(output);
 
@@ -55,8 +55,8 @@ describe('CLI Integration Tests', () => {
       expect(result.types).toContain('locations');
       expect(result.links).toBeGreaterThan(0);
 
-      // Verify .maas directory was created
-      const maasDir = path.join(tempDir, '.maas');
+      // Verify .hypercard directory was created
+      const maasDir = path.join(tempDir, '.hypercard');
       expect(fs.existsSync(maasDir)).toBe(true);
 
       // Verify config.yaml was created
@@ -66,7 +66,7 @@ describe('CLI Integration Tests', () => {
       expect(config.root).toBe('.');
 
       // Verify database was created
-      const dbPath = path.join(maasDir, 'maas.db');
+      const dbPath = path.join(maasDir, 'hypercard.db');
       expect(fs.existsSync(dbPath)).toBe(true);
     });
 
@@ -94,7 +94,7 @@ describe('CLI Integration Tests', () => {
     });
   });
 
-  describe('maas ls', () => {
+  describe('hypercard ls', () => {
     beforeEach(() => {
       // Initialize project
       runCLI('init', tempDir);
@@ -234,7 +234,7 @@ describe('CLI Integration Tests', () => {
     });
   });
 
-  describe('maas get', () => {
+  describe('hypercard get', () => {
     beforeEach(() => {
       // Initialize project
       runCLI('init', tempDir);
@@ -297,7 +297,7 @@ describe('CLI Integration Tests', () => {
     });
   });
 
-  describe('maas index', () => {
+  describe('hypercard index', () => {
     beforeEach(() => {
       // Initialize project
       runCLI('init', tempDir);
@@ -383,19 +383,19 @@ describe('CLI Integration Tests', () => {
     it('fails when not in initialized project (ls)', () => {
       expect(() => {
         runCLI('ls', tempDir);
-      }).toThrow(/not in a maas project/i);
+      }).toThrow(/not in a hypercard project/i);
     });
 
     it('fails when not in initialized project (get)', () => {
       expect(() => {
         runCLI('get voss', tempDir);
-      }).toThrow(/not in a maas project/i);
+      }).toThrow(/not in a hypercard project/i);
     });
 
     it('fails when not in initialized project (index)', () => {
       expect(() => {
         runCLI('index', tempDir);
-      }).toThrow(/not in a maas project/i);
+      }).toThrow(/not in a hypercard project/i);
     });
 
     it('fails when getting nonexistent card', () => {

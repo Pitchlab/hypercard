@@ -10,16 +10,16 @@ import { deriveCardId } from '../util/paths.js';
 import type { IEmbedder } from './embedder.js';
 import { formatCardText, serializeEmbedding } from './embedder.js';
 
-const DEFAULT_IGNORE = ['.maas/**', '**/node_modules/**', '**/.*'];
+const DEFAULT_IGNORE = ['.hypercard/**', '**/node_modules/**', '**/.*'];
 
 /**
- * Load ignore patterns from .maas/config.yaml watch.exclude, falling back to
- * defaults if the config is missing or malformed. Always unions with '.maas/**'
+ * Load ignore patterns from .hypercard/config.yaml watch.exclude, falling back to
+ * defaults if the config is missing or malformed. Always unions with '.hypercard/**'
  * and '**\/node_modules/**' so those are never accidentally crawled.
  */
 export function loadIgnorePatterns(projectRoot: string): string[] {
-  const configPath = path.join(projectRoot, '.maas', 'config.yaml');
-  const required = ['.maas/**', '**/node_modules/**'];
+  const configPath = path.join(projectRoot, '.hypercard', 'config.yaml');
+  const required = ['.hypercard/**', '**/node_modules/**'];
   try {
     if (fs.existsSync(configPath)) {
       const raw = fs.readFileSync(configPath, 'utf-8');

@@ -106,7 +106,7 @@ describe('parseMarkdownFile', () => {
   let tempDir: string;
 
   beforeEach(() => {
-    tempDir = fs.mkdtempSync(path.join(fs.realpathSync('/tmp'), 'maas-test-'));
+    tempDir = fs.mkdtempSync(path.join(fs.realpathSync('/tmp'), 'hypercard-test-'));
   });
 
   afterEach(() => {

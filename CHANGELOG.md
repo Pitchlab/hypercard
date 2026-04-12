@@ -1,18 +1,9 @@
 # Changelog
 
-## [Unreleased] - 2026-04-10
-
-### Renamed
-- **Project renamed from `hypercard` → `maas`** to avoid Apple's HyperCard trademark.
-  - CLI binary: `hypercard` → `maas`
-  - Project data directory: `.hypercard/` → `.maas/`
-  - DB file: `hypercard.db` → `maas.db`
-  - Socket file: `hypercard.sock` → `maas.sock`
-  - Global model cache: `~/.hypercard/models/` → `~/.maas/models/`
-  - All source, tests, docs, and error messages updated.
+## [Unreleased] - 2026-04-12
 
 ### Fixed
-- **Indexer now respects `.maas/config.yaml` `watch.exclude`** patterns. Previously the ignore list was hardcoded in `indexer.ts` and any user config was silently ignored.
+- **Indexer now respects `.hypercard/config.yaml` `watch.exclude`** patterns. Previously the ignore list was hardcoded in `indexer.ts` and any user config was silently ignored.
 - **Nested `node_modules/` directories are now excluded.** The default pattern was `node_modules/**` which only matched top-level directories, so nested installs like `frontend/node_modules/` leaked thousands of irrelevant markdown files into the index. Changed to `**/node_modules/**`. Legacy `node_modules/**` entries in existing configs are auto-normalized at runtime.
 - **Integration test teardown** — added retry loop around `fs.rmSync` to handle ENOTEMPTY when the daemon is still releasing file handles. Resolves flaky `search-cli` / `cli` / `graph-cli` test failures.
 
@@ -21,7 +12,6 @@
 - **Tests**: Integration test `CLI_PATH` now resolves via `process.cwd()` instead of a hardcoded absolute path.
 - **Package**: Added `repository`, `homepage`, `bugs`, `keywords`, `author`, and `files` fields to `package.json`. Version bumped to `0.3.0` to match implementation.
 - **License**: Added `LICENSE` file (MIT).
-- **Docs**: README and CLAUDE.md updated to drop `maas-cli` naming.
 
 ### Known issues
 - `tests/indexer.test.ts > checkStaleness() > detects multiple types of staleness simultaneously` is flaky due to mtime precision on fast filesystems. Passes in isolation, occasionally fails in full-suite runs. Not a regression from the extraction.

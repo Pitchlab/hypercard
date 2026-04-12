@@ -8,27 +8,27 @@ const DEFAULT_CONFIG = `root: .
 daemon:
   idle_timeout: 1800
   debounce: 200
-  socket: maas.sock
+  socket: hypercard.sock
 watch:
   include: ["**/*.md"]
-  exclude: ["**/node_modules/**", ".maas/**", "**/.*"]
+  exclude: ["**/node_modules/**", ".hypercard/**", "**/.*"]
 index:
   max_content_length: 50000
 `;
 
 export async function initCommand(): Promise<void> {
   const projectRoot = process.cwd();
-  const maasDir = path.join(projectRoot, '.maas');
+  const maasDir = path.join(projectRoot, '.hypercard');
 
   if (fs.existsSync(maasDir)) {
-    process.stderr.write('Error: .maas/ already exists. Project already initialized.\n');
+    process.stderr.write('Error: .hypercard/ already exists. Project already initialized.\n');
     process.exit(1);
   }
 
   fs.mkdirSync(maasDir, { recursive: true });
   fs.writeFileSync(path.join(maasDir, 'config.yaml'), DEFAULT_CONFIG, 'utf-8');
 
-  const dbPath = path.join(maasDir, 'maas.db');
+  const dbPath = path.join(maasDir, 'hypercard.db');
   const db = initDatabase(dbPath);
 
   process.stderr.write('Indexing all cards...');
