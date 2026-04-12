@@ -193,6 +193,45 @@ describe('indexer', () => {
     });
   });
 
+  describe('malformed frontmatter', () => {
+    it('skips files with broken YAML and returns warnings', async () => {
+      // Create a file with malformed frontmatter
+      fs.writeFileSync(
+        path.join(tempDir, 'broken.md'),
+        '---\ntags: [valid\nstatus: this line breaks: the yaml: parser\n---\n\n# Broken\n\nContent here.',
+        'utf-8'
+      );
+
+      const stats = await indexAllCards(tempDir, db);
+
+      // Should index the 4 good files, skip the broken one
+      expect(stats.cards_added).toBe(4);
+      expect(stats.warnings).toBeDefined();
+      expect(stats.warnings!.length).toBe(1);
+      expect(stats.warnings![0].file).toBe('broken.md');
+
+      // Broken card should NOT be in the database
+      const broken = db.prepare('SELECT * FROM cards WHERE id = ?').get('broken') as unknown;
+      expect(broken).toBeUndefined();
+    });
+
+    it('indexSingleCard skips broken file without throwing', async () => {
+      const brokenPath = path.join(tempDir, 'broken.md');
+      fs.writeFileSync(
+        brokenPath,
+        '---\ntags: [valid\n---\n\n# Broken',
+        'utf-8'
+      );
+
+      // Should not throw
+      await expect(indexSingleCard(brokenPath, tempDir, db)).resolves.toBeUndefined();
+
+      // Should not be indexed
+      const broken = db.prepare('SELECT * FROM cards WHERE id = ?').get('broken') as unknown;
+      expect(broken).toBeUndefined();
+    });
+  });
+
   describe('checkStaleness()', () => {
     beforeEach(async () => {
       // Index all cards first

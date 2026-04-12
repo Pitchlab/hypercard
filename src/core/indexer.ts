@@ -3,7 +3,7 @@ import path from 'node:path';
 import { glob } from 'glob';
 import jsYaml from 'js-yaml';
 import type Database from 'better-sqlite3';
-import type { IIndexStats, IStaleCheck, IProgressCallback, IConfig } from './types.js';
+import type { IIndexStats, IIndexWarning, IStaleCheck, IProgressCallback, IConfig } from './types.js';
 import { parseMarkdownFile, extractLinks } from './parser.js';
 import { upsertCard, deleteCard, deleteEdgesForCard, insertEdge, getAllCards, upsertEmbedding, deleteEmbedding, getContentHash } from './db.js';
 import { deriveCardId } from '../util/paths.js';
@@ -57,6 +57,8 @@ export async function indexAllCards(projectRoot: string, db: Database.Database, 
   let embeddings_skipped = 0;
   const cardTexts: { id: string; text: string }[] = [];
 
+  const warnings: IIndexWarning[] = [];
+
   const transaction = db.transaction(() => {
     const indexedIds = new Set<string>();
     let fileIndex = 0;
@@ -66,7 +68,16 @@ export async function indexAllCards(projectRoot: string, db: Database.Database, 
       if (onProgress) onProgress('indexing', fileIndex, files.length);
 
       const absPath = path.join(projectRoot, relFile);
-      const card = parseMarkdownFile(absPath, projectRoot);
+
+      let card;
+      try {
+        card = parseMarkdownFile(absPath, projectRoot);
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        warnings.push({ file: relFile, error: msg });
+        continue;
+      }
+
       indexedIds.add(card.id);
 
       // Check if content actually changed by comparing SHA hashes
@@ -133,12 +144,20 @@ export async function indexAllCards(projectRoot: string, db: Database.Database, 
     }
   }
 
-  return { ...stats, embeddings_generated, embeddings_skipped };
+  return { ...stats, embeddings_generated, embeddings_skipped, warnings: warnings.length > 0 ? warnings : undefined };
 }
 
 export async function indexSingleCard(filePath: string, projectRoot: string, db: Database.Database, embedder?: IEmbedder): Promise<void> {
   const absPath = path.isAbsolute(filePath) ? filePath : path.join(projectRoot, filePath);
-  const card = parseMarkdownFile(absPath, projectRoot);
+
+  let card;
+  try {
+    card = parseMarkdownFile(absPath, projectRoot);
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    console.error(`WARNING: frontmatter in file ${filePath} is malformed — skipping (${msg})`);
+    return;
+  }
 
   // Check if content actually changed by comparing SHA hashes
   const storedHash = getContentHash(db, card.id);

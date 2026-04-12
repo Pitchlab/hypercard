@@ -40,6 +40,14 @@ export async function indexCommand(options: { only?: string; check?: boolean }):
       process.stderr.write(' done.\n');
     }
 
+    // Print warnings for malformed files
+    const warnings = (data as { warnings?: { file: string; error: string }[] }).warnings;
+    if (warnings && warnings.length > 0) {
+      for (const w of warnings) {
+        process.stderr.write(`WARNING: frontmatter in file ${w.file} is malformed — skipping. Fix frontmatter and rerun index to fix.\n`);
+      }
+    }
+
     outputYaml(data);
   } catch (err: unknown) {
     if (!options.check) process.stderr.write(' failed.\n');

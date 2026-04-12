@@ -3,6 +3,7 @@
 ## [Unreleased] - 2026-04-12
 
 ### Fixed
+- **Malformed frontmatter no longer crashes the indexer.** Files with broken YAML frontmatter are now skipped with a clear warning (`WARNING: frontmatter in file <path> is malformed — skipping`). Previously one bad file would abort the entire index run.
 - **Indexer now respects `.hypercard/config.yaml` `watch.exclude`** patterns. Previously the ignore list was hardcoded in `indexer.ts` and any user config was silently ignored.
 - **Nested `node_modules/` directories are now excluded.** The default pattern was `node_modules/**` which only matched top-level directories, so nested installs like `frontend/node_modules/` leaked thousands of irrelevant markdown files into the index. Changed to `**/node_modules/**`. Legacy `node_modules/**` entries in existing configs are auto-normalized at runtime.
 - **Integration test teardown** — added retry loop around `fs.rmSync` to handle ENOTEMPTY when the daemon is still releasing file handles. Resolves flaky `search-cli` / `cli` / `graph-cli` test failures.

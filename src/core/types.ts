@@ -65,6 +65,11 @@ export interface IConfig {
   };
 }
 
+export interface IIndexWarning {
+  file: string;
+  error: string;
+}
+
 export interface IIndexStats {
   cards_added: number;
   cards_updated: number;
@@ -72,6 +77,7 @@ export interface IIndexStats {
   edges: number;
   embeddings_generated?: number;
   embeddings_skipped?: number;
+  warnings?: IIndexWarning[];
 }
 
 export type IProgressCallback = (phase: string, current: number, total: number) => void;
