@@ -57,6 +57,73 @@ export function cleanupDaemonFiles(projectRoot: string): void {
   removeSocketFile(projectRoot);
 }
 
+/**
+ * Acquire an exclusive startup lock so two daemons spawned near-simultaneously
+ * (e.g. parallel CLI calls) can't both proceed — which previously had the second
+ * daemon delete the first's freshly-created socket. Returns false if a live
+ * daemon already holds the lock; the caller should then exit cleanly.
+ */
+export function acquireStartupLock(projectRoot: string): boolean {
+  const lockPath = path.join(projectRoot, '.hypercard', 'daemon.lock');
+  try {
+    const fd = fs.openSync(lockPath, 'wx'); // O_EXCL: fails if the lock exists
+    fs.writeSync(fd, String(process.pid));
+    fs.closeSync(fd);
+    return true;
+  } catch {
+    // Lock present — only take it over if the holder is dead.
+    let holder = NaN;
+    try {
+      holder = parseInt(fs.readFileSync(lockPath, 'utf-8').trim(), 10);
+    } catch {
+      // unreadable — treat as stale
+    }
+    if (!Number.isNaN(holder)) {
+      try {
+        process.kill(holder, 0);
+        return false; // holder alive — someone else owns startup
+      } catch {
+        // holder dead — fall through to take over
+      }
+    }
+    try {
+      fs.writeFileSync(lockPath, String(process.pid), 'utf-8');
+      return true;
+    } catch {
+      return false;
+    }
+  }
+}
+
+export function releaseStartupLock(projectRoot: string): void {
+  const lockPath = path.join(projectRoot, '.hypercard', 'daemon.lock');
+  try {
+    fs.unlinkSync(lockPath);
+  } catch {
+    // already gone
+  }
+}
+
+/**
+ * Serialise async work so two callers can never interleave (critical for
+ * better-sqlite3: overlapping `db.transaction()` calls across an `await` yield
+ * throw "cannot start a transaction within a transaction"). Each submitted task
+ * runs only after the previous one settles.
+ */
+export type RunExclusive = <T>(fn: () => Promise<T> | T) => Promise<T>;
+
+export function createSerialQueue(): RunExclusive {
+  let tail: Promise<unknown> = Promise.resolve();
+  return <T>(fn: () => Promise<T> | T): Promise<T> => {
+    const run = tail.then(() => fn());
+    tail = run.then(
+      () => undefined,
+      () => undefined,
+    );
+    return run as Promise<T>;
+  };
+}
+
 export function createIdleTimer(timeoutMs: number, onIdle: () => void): { reset: () => void; clear: () => void } {
   let timer: ReturnType<typeof setTimeout> | null = null;
 

@@ -23,7 +23,10 @@ export function startServer(socketPath: string, handler: ICommandHandler): Promi
 
         for (const line of lines) {
           if (!line.trim()) continue;
-          handleLine(line, conn, handler);
+          // Fire-and-forget, but never let a rejection escape to crash the daemon.
+          handleLine(line, conn, handler).catch((err) => {
+            process.stderr.write(`[daemon] handler error: ${err?.message ?? err}\n`);
+          });
         }
       });
 
@@ -32,8 +35,17 @@ export function startServer(socketPath: string, handler: ICommandHandler): Promi
       });
     });
 
+    // Restrict the socket from creation, not just after listen(): a umask of
+    // 0o177 means the socket is born 0600 so there's no world-accessible window
+    // for a local attacker to connect through on a multi-user machine.
+    const prevUmask = process.umask(0o177);
     server.listen(socketPath, () => {
-      fs.chmodSync(socketPath, 0o600);
+      process.umask(prevUmask);
+      try {
+        fs.chmodSync(socketPath, 0o600);
+      } catch {
+        // best effort
+      }
       process.stderr.write(`[daemon] listening on ${socketPath}\n`);
       resolve(server);
     });

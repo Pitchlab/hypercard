@@ -21,6 +21,8 @@ import { resolveFuzzyId } from '../util/fuzzy.js';
 import type { IEmbedder } from '../core/embedder.js';
 import { searchSemantic, searchHybrid } from '../core/search.js';
 import { suggestLinks } from '../core/suggestions.js';
+import { createSerialQueue } from './lifecycle.js';
+import type { RunExclusive } from './lifecycle.js';
 import type { IProgressCallback } from '../core/types.js';
 
 export type { IEmbedder };
@@ -31,11 +33,20 @@ export class CommandHandler implements ICommandHandler {
   private embedder?: IEmbedder;
   private startTime = Date.now();
   private lastStalenessCheck = 0;
+  private runExclusive: RunExclusive;
 
-  constructor(options: { db: Database.Database; projectRoot: string; embedder?: IEmbedder }) {
+  constructor(options: {
+    db: Database.Database;
+    projectRoot: string;
+    embedder?: IEmbedder;
+    runExclusive?: RunExclusive;
+  }) {
     this.db = options.db;
     this.projectRoot = options.projectRoot;
     this.embedder = options.embedder;
+    // Shared with the file watcher in daemon mode so reindex jobs never overlap;
+    // own private queue in local (one-shot) mode.
+    this.runExclusive = options.runExclusive ?? createSerialQueue();
   }
 
   setEmbedder(embedder: IEmbedder): void {
@@ -69,7 +80,7 @@ export class CommandHandler implements ICommandHandler {
 
     const stale = checkStaleness(this.projectRoot, this.db);
     if (stale.stale.length > 0 || stale.missing.length > 0 || stale.new_files.length > 0) {
-      await indexAllCards(this.projectRoot, this.db, this.embedder);
+      await this.runExclusive(() => indexAllCards(this.projectRoot, this.db, this.embedder));
     }
   }
 
@@ -278,11 +289,15 @@ export class CommandHandler implements ICommandHandler {
     }
 
     if (args.only) {
-      await indexSingleCard(args.only as string, this.projectRoot, this.db, this.embedder);
+      await this.runExclusive(() =>
+        indexSingleCard(args.only as string, this.projectRoot, this.db, this.embedder),
+      );
       return { indexed: args.only as string };
     }
 
-    const stats = await indexAllCards(this.projectRoot, this.db, this.embedder, onProgress);
+    const stats = await this.runExclusive(() =>
+      indexAllCards(this.projectRoot, this.db, this.embedder, onProgress),
+    );
     return stats;
   }
 

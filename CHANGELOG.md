@@ -1,6 +1,24 @@
 # Changelog
 
-## [Unreleased] - 2026-04-12
+## [Unreleased] - 2026-06-08
+
+### Fixed
+- **Code-block-aware link extraction.** `[[refs]]` inside fenced (```` ``` ````/`~~~`) or inline code are no longer indexed as edges, rewritten by `convert`, or matched by `link`/`unlink`. New `src/util/markdown.ts` (`stripCodeRegions`, `structuralLineFlags`) preserves character offsets so context/positions stay correct.
+- **`convert --write` data-safety.** A filename with BOTH spaces and uppercase now renames in a single canonical pass (was: a second `renameSync` crashing with ENOENT, leaving the tree half-renamed). Added a collision guard that refuses to overwrite a different existing file (critical on case-insensitive macOS). Frontmatter is no longer round-tripped through the YAML dumper when only adding `tags: []` — key order and quoting are preserved. Cross-file reference updates read-once/write-once and follow files renamed earlier in the same run.
+- **`unlink` no longer corrupts Markdown.** Whitespace is tidied only on lines that actually contained the removed link, preserving hard line breaks (trailing double space) and table padding elsewhere. `link` never inserts into frontmatter or code blocks.
+- **Daemon concurrency.** Added an exclusive startup lock so parallel CLI invocations can't both launch a daemon and delete each other's socket. Auto-reindex and the file watcher now share a serial queue, preventing overlapping SQLite transactions ("cannot start a transaction within a transaction"). Added `uncaughtException`/`unhandledRejection` handlers that clean up PID/socket/lock on crash. The daemon's command wrapper now forwards `onProgress` (index progress was silently dropped). Daemon stdout/stderr is captured to `.hypercard/daemon.log` so startup failures are diagnosable instead of lost.
+- **Indexer** no longer rebuilds every edge row on each full reindex — edges are rebuilt only when a card's content hash changed (mtime is still refreshed).
+- **Socket permissions** set via a restrictive umask around `listen()`, closing the brief world-accessible window before `chmod 0600`.
+
+### Changed
+- **Docs accuracy.** Marked `lint`/`rename` as planned-not-implemented across README and CLAUDE.md; documented the shipped `link`/`unlink`/`suggest-links`/`start` commands; corrected the search default (hybrid, not BM25); fixed the embeddings package name (`@huggingface/transformers ^3.8.1`, not `@xenova/transformers`); clarified that link maintenance is the one exception to "never writes content".
+- **Tooling**: removed the broken `test:e2e` script (no config/tests existed; daemon lifecycle is covered by the CLI integration suite). `.gitignore` now ignores `.hypercard/` and `dev-docs/` (was a stale `.maas/`).
+- **Tests**: +31 new tests (245 total) covering code-block stripping, linker insert/remove safety, the canonical rename + collision guard, and the serial queue + startup lock.
+
+### Removed
+- Internal planning docs (`docs/`) moved to local-only `dev-docs/` (gitignored) and purged from git history.
+
+## [0.3.0-dev] - 2026-04-12
 
 ### Fixed
 - **Malformed frontmatter no longer crashes the indexer.** Files with broken YAML frontmatter are now skipped with a clear warning (`WARNING: frontmatter in file <path> is malformed — skipping`). Previously one bad file would abort the entire index run.

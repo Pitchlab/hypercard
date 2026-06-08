@@ -9,11 +9,19 @@ A CLI tool that turns a folder of interconnected markdown files into a queryable
 ```bash
 # From the repo root:
 pnpm install && pnpm build
-npm link    # Makes 'hypercard' available globally
+
+# Make 'hypercard' available globally:
+npm link                       # simplest — works with any Node install
+# pnpm users: run `pnpm setup` once first, then: pnpm link --global
 
 # Then from any project folder:
 hypercard init
 ```
+
+> First semantic/hybrid search downloads the embedding model (`Xenova/all-MiniLM-L6-v2`,
+> ~80MB) into a local cache automatically — no manual step. `better-sqlite3` ships
+> prebuilt binaries for common platforms; an exotic platform may compile it on install
+> (needs a C/C++ toolchain).
 
 ## Quick Start
 
@@ -214,22 +222,40 @@ hypercard graph factions/crimson_order --out   # Outgoing only
 hypercard graph factions/crimson_order --in    # Backlinks only
 ```
 
-### `hypercard lint` (Phase 5+)
+### `hypercard suggest-links <id>`
 
-Check integrity of the knowledge graph.
-
-```bash
-hypercard lint           # Find broken links, orphans, duplicates
-hypercard lint --fix     # Auto-remove dead edge rows
-```
-
-### `hypercard rename <old> <new>` (Phase 5+)
-
-Rename a card and update all cross-file references.
+Suggest missing links for a card based on semantic similarity and mention detection.
 
 ```bash
-hypercard rename factions/old_name factions/new_name
+hypercard suggest-links factions/rebels
+hypercard suggest-links rebels --limit=5
 ```
+
+### `hypercard link <source> <target>` / `unlink <source> <target>`
+
+Add or remove a `[[target]]` wiki-link in the source card file. `link` appends to the
+end of the first prose paragraph (never inside frontmatter or code blocks); `unlink`
+removes both `[[target]]` and `[[target|Display]]` forms.
+
+```bash
+hypercard link factions/rebels characters/leia
+hypercard unlink factions/rebels characters/leia
+```
+
+### Daemon control
+
+```bash
+hypercard status     # Daemon + index status
+hypercard start      # Start the background daemon explicitly (it also auto-starts)
+hypercard stop       # Stop the background daemon
+hypercard notify <file>   # Fire-and-forget reindex trigger (for editor hooks)
+```
+
+### Planned (not yet implemented)
+
+`hypercard lint` (broken-link/orphan/duplicate checks) and `hypercard rename <old> <new>`
+(rename a card + update all cross-references) are specified but **not built yet** (Phase 5).
+Don't rely on them.
 
 ## Architecture
 
@@ -251,7 +277,7 @@ pnpm dev          # Watch mode
 
 ## Claude Code Integration
 
-> **Copy the section below into your `CLAUDE.md`, `skill.md`, or `agent.md` to teach Claude how to use Maas.**
+> **Copy the section below into your `CLAUDE.md`, `skill.md`, or `agent.md` to teach Claude how to use Hypercard.**
 
 ---
 
@@ -295,27 +321,29 @@ hypercard graph <id> --out                  # Outgoing links only
 hypercard graph <id> --in                   # Incoming links only (backlinks)
 hypercard graph <id> --exclude=<types>      # Exclude types (comma-separated)
 hypercard graph <id> --include=<t:detail>   # Type with detail level (full|summary|meta|id)
-hypercard lint                              # Check broken links, orphans, duplicates
-hypercard lint --fix                        # Remove dead edge rows
-hypercard rename <old_id> <new_id>          # Rename card + update all [[refs]]
+hypercard suggest-links <id>                # Suggest missing links (semantic + mention detection)
+hypercard suggest-links <id> --limit=<n>    # Limit suggestions (default: 10)
+hypercard link <source> <target>           # Add a [[target]] link in the source file
+hypercard unlink <source> <target>         # Remove [[target]] links from the source file
 hypercard status                            # Daemon + index status
+hypercard start                             # Start the background daemon (also auto-starts)
 hypercard notify <file>                     # Fire-and-forget reindex trigger (for hooks)
 hypercard stop                              # Stop background daemon
+
+# NOTE: `lint` and `rename` are spec'd but NOT implemented yet — do not call them.
 ```
 
 #### When to use
 
 - "What do we know about X?" → `hypercard search "X"` then `hypercard get <id>`
 - "How is X connected to Y?" → `hypercard graph <id> --depth=2`
-- "Find related content" → `hypercard search` + `hypercard graph`
-- "Check consistency" → `hypercard lint`
-- "Rename/reorganize" → `hypercard rename`
-- Adding/editing knowledge → edit the `.md` file directly, then `hypercard lint`
+- "Find related content" → `hypercard search` + `hypercard graph` + `hypercard suggest-links`
+- "Link two cards" → `hypercard link <source> <target>`
+- Adding/editing knowledge → edit the `.md` file directly (the daemon reindexes on save)
 
 #### Rules
 
 - Links must be exact IDs: `[[factions/crimson_order]]` not `[[crimson_order]]`
 - Always verify IDs exist with `hypercard ls` or `hypercard search` before adding `[[links]]`
-- After bulk edits, run `hypercard lint` to check for broken links
-- The `.md` files are the source of truth — Hypercard is a read/query layer
+- The `.md` files are the source of truth — Hypercard only does link maintenance, never rewrites prose
 - Never invent card IDs — always search first

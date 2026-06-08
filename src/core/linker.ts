@@ -1,4 +1,5 @@
 import fs from 'node:fs';
+import { structuralLineFlags } from '../util/markdown.js';
 
 export interface IAddLinkResult {
   added: boolean;
@@ -25,38 +26,47 @@ export function addLink(sourceFilePath: string, targetId: string, _projectRoot: 
     return { added: false, line: -1 };
   }
 
-  // Find first paragraph after the title.
-  // Strategy: skip leading blank lines, skip the `# Title` line, skip blank lines after it,
-  // then the next non-blank block is the first paragraph. We append to its last line.
+  // Map out frontmatter and code-fence regions so we never insert a link inside
+  // them — that would corrupt the YAML block or a code example.
+  const { inFrontmatter, inCode } = structuralLineFlags(content);
+  const isStructural = (i: number): boolean => inFrontmatter[i] || inCode[i];
+
+  // Find the `# Title` line, but only one that is real prose (not inside a fence).
   let titleLineIdx = -1;
   for (let i = 0; i < lines.length; i++) {
-    if (lines[i].startsWith('# ')) {
+    if (!isStructural(i) && lines[i].startsWith('# ')) {
       titleLineIdx = i;
       break;
     }
   }
 
-  // If no title found, append after first non-empty line
+  // If no title found, append after first non-empty prose line
   const startSearch = titleLineIdx >= 0 ? titleLineIdx + 1 : 0;
 
-  // Skip blank lines after title (or from start)
+  // Skip blank lines AND any frontmatter/code lines to land on real prose.
   let paragraphStart = startSearch;
-  while (paragraphStart < lines.length && lines[paragraphStart].trim() === '') {
+  while (
+    paragraphStart < lines.length &&
+    (lines[paragraphStart].trim() === '' || isStructural(paragraphStart))
+  ) {
     paragraphStart++;
   }
 
-  // If we landed on a frontmatter fence or another heading, or end of file, just append after title
+  // No prose paragraph found — append link on its own line after the title.
   if (paragraphStart >= lines.length) {
-    // No paragraph found — append link on a new line after title
     const insertLine = titleLineIdx >= 0 ? titleLineIdx + 1 : 0;
     lines.splice(insertLine, 0, '', plainLink);
     fs.writeFileSync(sourceFilePath, lines.join('\n'), 'utf-8');
     return { added: true, line: insertLine + 2 }; // 1-indexed
   }
 
-  // Find end of the first paragraph (next blank line or end of file)
+  // Find end of the first prose paragraph (next blank line, code fence, or EOF).
   let paragraphEnd = paragraphStart;
-  while (paragraphEnd < lines.length && lines[paragraphEnd].trim() !== '') {
+  while (
+    paragraphEnd < lines.length &&
+    lines[paragraphEnd].trim() !== '' &&
+    !isStructural(paragraphEnd)
+  ) {
     paragraphEnd++;
   }
 
@@ -83,15 +93,21 @@ export function removeLink(sourceFilePath: string, targetId: string, _projectRoo
     return { removed: false, count: 0 };
   }
 
-  let updated = content.replace(pattern, '');
-
-  // Clean up double spaces left behind
-  updated = updated.replace(/ {2,}/g, ' ');
-
-  // Clean up lines that are now only whitespace (but preserve intentional blank lines)
-  updated = updated
+  // Only touch lines that actually contained a link. Collapsing whitespace
+  // globally would destroy Markdown hard line breaks (trailing double space)
+  // and table column padding elsewhere in the file.
+  const linePattern = new RegExp(`\\[\\[${escapeRegex(targetId)}(\\|[^\\]]*)?\\]\\]`, 'g');
+  const updated = content
     .split('\n')
-    .map((line) => (line.trim() === '' ? '' : line.trimEnd()))
+    .map((line) => {
+      if (!linePattern.test(line)) return line;
+      linePattern.lastIndex = 0;
+      // Remove the link, then tidy only the whitespace it left behind on this line.
+      return line
+        .replace(linePattern, '')
+        .replace(/ {2,}/g, ' ')
+        .replace(/\s+$/, '');
+    })
     .join('\n');
 
   fs.writeFileSync(sourceFilePath, updated, 'utf-8');

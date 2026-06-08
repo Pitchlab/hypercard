@@ -4,6 +4,7 @@ import { createHash } from 'node:crypto';
 import matter from 'gray-matter';
 import type { ICard, IParsedLink } from './types.js';
 import { deriveCardId, deriveCardType } from '../util/paths.js';
+import { stripCodeRegions } from '../util/markdown.js';
 
 const LINK_REGEX = /\[\[([^\]|]+)(?:\|([^\]]*))?\]\]/g;
 const TITLE_REGEX = /^#\s+(.+)$/m;
@@ -12,10 +13,15 @@ export function extractLinks(content: string): IParsedLink[] {
   const links: IParsedLink[] = [];
   let match: RegExpExecArray | null;
 
+  // Match against a code-free shadow string so [[refs]] inside fenced/inline
+  // code never become edges. stripCodeRegions preserves length, so match
+  // indices remain valid against the original `content` for context slicing.
+  const haystack = stripCodeRegions(content);
+
   // Reset lastIndex
   LINK_REGEX.lastIndex = 0;
 
-  while ((match = LINK_REGEX.exec(content)) !== null) {
+  while ((match = LINK_REGEX.exec(haystack)) !== null) {
     const position = match.index;
     const target_id = match[1].trim();
     const display_text = match[2]?.trim() || undefined;

@@ -153,7 +153,8 @@ export function traverseGraph(db: Database.Database, options: IGraphOptions): IG
       continue;
     }
 
-    // Max check
+    // Max check — placed AFTER existence/exclude so `truncated` only ever lists
+    // cards that genuinely exist and could be fetched with a higher --max.
     if (included.length >= max) {
       truncated.push(currentId);
       continue;

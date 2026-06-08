@@ -127,12 +127,15 @@ program
 program
   .command('search <query>')
   .description(
-    'Search across all cards using BM25 full-text search.\n\n' +
+    'Search across all cards. Default mode is hybrid (BM25 + semantic, fused with RRF),\n' +
+    'auto-falling back to BM25 when no embeddings exist yet.\n\n' +
     'Examples:\n' +
-    '  hypercard search "crimson military"           # Basic search\n' +
+    '  hypercard search "crimson military"           # Hybrid (default)\n' +
     '  hypercard search "crimson" --type=factions    # Filter by type\n' +
     '  hypercard search "trade" --tag=neutral        # Filter by tag\n' +
     '  hypercard search "crimson" --limit=20         # More results\n' +
+    '  hypercard search "warriors" --semantic        # Semantic only\n' +
+    '  hypercard search "crimson" --bm25             # Keyword only\n' +
     '  hypercard search "crimson" --where status=published  # Filter by frontmatter\n\n' +
     'Output: query, mode, count, results[] (id, title, type, tags, score, snippet)',
   )
@@ -140,9 +143,9 @@ program
   .option('--tag <tag>', 'Filter by tag')
   .option('--where <filter...>', 'Filter by frontmatter key=value (repeatable, AND logic)')
   .option('--limit <n>', 'Max results (default: 10)', '10')
-  .option('--bm25', 'Use keyword search (default)')
-  .option('--semantic', 'Use semantic vector search')
-  .option('--hybrid', 'Use hybrid BM25 + semantic search')
+  .option('--bm25', 'Keyword (BM25) search only')
+  .option('--semantic', 'Semantic vector search only')
+  .option('--hybrid', 'Hybrid BM25 + semantic search (default)')
   .action(searchCommand);
 
 program

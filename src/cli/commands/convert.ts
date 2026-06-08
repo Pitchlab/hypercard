@@ -86,24 +86,38 @@ export async function convertCommand(file: string | undefined, options: IConvert
       }
     }
 
-    // Handle filename renames with --write
-    if (!dryRun && result.filename_issues.length > 0) {
-      for (const issue of result.filename_issues) {
-        if (issue.suggestion && (issue.issue === 'spaces_in_filename' || issue.issue === 'uppercase_in_filename')) {
-          const newPath = path.join(projectRoot, issue.suggestion);
-          const currentPath = result.modified ? filePath : filePath; // content already written above
-          const newDir = path.dirname(newPath);
-          if (!fs.existsSync(newDir)) {
-            fs.mkdirSync(newDir, { recursive: true });
-          }
-          fs.renameSync(currentPath, newPath);
-          summary.files_renamed++;
+    // Handle filename rename with --write — exactly one rename to the single
+    // canonical target computed by convertFile (never one per issue).
+    if (!dryRun && result.rename) {
+      const newPath = path.join(projectRoot, result.rename.to);
+      const currentPath = path.join(projectRoot, result.rename.from);
 
-          // Update references in other files
-          const oldId = result.file.replace(/\.md$/, '');
-          const newId = issue.suggestion.replace(/\.md$/, '');
-          updateReferencesInFiles(projectRoot, files, oldId, newId);
+      // Collision guard: refuse to clobber a different existing file. A pure
+      // case-only rename on a case-insensitive FS (macOS) points at the same
+      // inode and is safe; anything else that already exists is a real collision.
+      const sameTarget = path.resolve(newPath) === path.resolve(currentPath);
+      const caseOnly = newPath.toLowerCase() === currentPath.toLowerCase();
+      if (fs.existsSync(newPath) && !sameTarget && !caseOnly) {
+        allWarnings.push({
+          file: result.file,
+          message: `Skipped rename to ${result.rename.to} — target already exists (would overwrite)`,
+        });
+      } else if (!sameTarget) {
+        const newDir = path.dirname(newPath);
+        if (!fs.existsSync(newDir)) {
+          fs.mkdirSync(newDir, { recursive: true });
         }
+        fs.renameSync(currentPath, newPath);
+        summary.files_renamed++;
+
+        // Keep `files` pointing at the new location so a later rename's
+        // reference scan reads this file's updated content, not a dead path.
+        const idx = files.indexOf(filePath);
+        if (idx !== -1) files[idx] = newPath;
+
+        const oldId = result.rename.from.replace(/\.md$/, '');
+        const newId = result.rename.to.replace(/\.md$/, '');
+        updateReferencesInFiles(files, oldId, newId);
       }
     }
 
@@ -123,27 +137,22 @@ export async function convertCommand(file: string | undefined, options: IConvert
   outputYaml(summary);
 }
 
-function updateReferencesInFiles(
-  projectRoot: string,
-  knownFiles: string[],
-  oldId: string,
-  newId: string,
-): void {
-  // Replace [[oldId]] with [[newId]] in all known project files
+function updateReferencesInFiles(knownFiles: string[], oldId: string, newId: string): void {
+  // Rewrite both [[oldId]] and [[oldId|display]] forms. Read once, apply both
+  // substitutions in memory, write once — no stale double-read that could
+  // clobber a concurrent write between the two passes.
   const oldLink = `[[${oldId}]]`;
   const newLink = `[[${newId}]]`;
+  const oldLinkPrefix = `[[${oldId}|`;
+  const newLinkPrefix = `[[${newId}|`;
 
   for (const filePath of knownFiles) {
     if (!fs.existsSync(filePath)) continue;
     const content = fs.readFileSync(filePath, 'utf-8');
-    if (content.includes(oldLink)) {
-      fs.writeFileSync(filePath, content.replaceAll(oldLink, newLink), 'utf-8');
-    }
-    // Also handle links with display text
-    const oldLinkPrefix = `[[${oldId}|`;
-    const newLinkPrefix = `[[${newId}|`;
-    if (content.includes(oldLinkPrefix)) {
-      fs.writeFileSync(filePath, fs.readFileSync(filePath, 'utf-8').replaceAll(oldLinkPrefix, newLinkPrefix), 'utf-8');
+    if (!content.includes(oldLink) && !content.includes(oldLinkPrefix)) continue;
+    const updated = content.replaceAll(oldLink, newLink).replaceAll(oldLinkPrefix, newLinkPrefix);
+    if (updated !== content) {
+      fs.writeFileSync(filePath, updated, 'utf-8');
     }
   }
 }

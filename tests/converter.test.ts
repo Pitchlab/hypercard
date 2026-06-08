@@ -161,6 +161,67 @@ describe('convertFile', () => {
       expect(result.links_fixed).toBe(0);
       expect(result.converted_content).toContain('[[voss]]');
     });
+
+    it('does NOT rewrite bare links inside fenced code blocks', () => {
+      const filePath = path.join(tempDir, 'docs', 'guide.md');
+      fs.mkdirSync(path.dirname(filePath), { recursive: true });
+      fs.writeFileSync(
+        filePath,
+        '---\ntags: []\n---\n\n# Guide\n\n```\nLink like [[voss]] in examples\n```\n',
+        'utf-8',
+      );
+
+      const result = convertFile(filePath, tempDir, ['characters/voss']);
+
+      expect(result.links_fixed).toBe(0);
+      expect(result.converted_content).toContain('[[voss]]'); // untouched in code
+      expect(result.converted_content).not.toContain('[[characters/voss]]');
+    });
+  });
+
+  describe('frontmatter formatting preservation', () => {
+    it('preserves key order and quoting when only adding tags', () => {
+      const filePath = path.join(tempDir, 'notes', 'test.md');
+      fs.mkdirSync(path.dirname(filePath), { recursive: true });
+      // Order zebra→alpha and a quoted scalar must survive verbatim.
+      fs.writeFileSync(filePath, '---\nzebra: "Quoted Value"\nalpha: 1\n---\n\n# Test\n', 'utf-8');
+
+      const result = convertFile(filePath, tempDir);
+
+      expect(result.frontmatter_added).toBe(true);
+      const fm = result.converted_content.split('---')[1];
+      expect(fm).toContain('zebra: "Quoted Value"');
+      // zebra must still come before alpha (no YAML re-serialisation reordering).
+      expect(fm.indexOf('zebra')).toBeLessThan(fm.indexOf('alpha'));
+      expect(fm).toContain('tags: []');
+    });
+  });
+
+  describe('canonical rename', () => {
+    it('produces a single normalized target for a name with spaces AND uppercase', () => {
+      const filePath = path.join(tempDir, 'factions', 'My Faction.md');
+      fs.mkdirSync(path.dirname(filePath), { recursive: true });
+      fs.writeFileSync(filePath, '---\ntags: []\n---\n\n# My Faction\n', 'utf-8');
+
+      const result = convertFile(filePath, tempDir);
+
+      // One canonical target — lowercase AND underscored, never "my faction.md".
+      expect(result.rename).toBeDefined();
+      expect(result.rename!.to).toBe('factions/my_faction.md');
+      // Every filename-issue suggestion agrees with the single canonical target.
+      for (const issue of result.filename_issues) {
+        if (issue.suggestion) expect(issue.suggestion).toBe('factions/my_faction.md');
+      }
+    });
+
+    it('has no rename for an already-clean filename', () => {
+      const filePath = path.join(tempDir, 'factions', 'clean_name.md');
+      fs.mkdirSync(path.dirname(filePath), { recursive: true });
+      fs.writeFileSync(filePath, '---\ntags: []\n---\n\n# Clean\n', 'utf-8');
+
+      const result = convertFile(filePath, tempDir);
+      expect(result.rename).toBeUndefined();
+    });
   });
 
   describe('filename checks', () => {

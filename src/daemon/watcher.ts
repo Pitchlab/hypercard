@@ -4,6 +4,8 @@ import type { FSWatcher } from 'chokidar';
 import type Database from 'better-sqlite3';
 import { indexSingleCard, removeCard } from '../core/indexer.js';
 import { deriveCardId } from '../util/paths.js';
+import { createSerialQueue } from './lifecycle.js';
+import type { RunExclusive } from './lifecycle.js';
 
 export interface IWatcherConfig {
   include: string[];
@@ -16,6 +18,7 @@ export function startWatcher(
   db: Database.Database,
   config: IWatcherConfig,
   onActivity: () => void,
+  runExclusive: RunExclusive = createSerialQueue(),
 ): FSWatcher {
   const pending = new Map<string, 'add' | 'change' | 'unlink'>();
   let debounceTimer: ReturnType<typeof setTimeout> | null = null;
@@ -24,22 +27,26 @@ export function startWatcher(
     const batch = new Map(pending);
     pending.clear();
 
-    for (const [filePath, event] of batch) {
-      try {
-        if (event === 'unlink') {
-          const cardId = deriveCardId(filePath, projectRoot);
-          removeCard(cardId, db);
-          process.stderr.write(`[watcher] removed: ${cardId}\n`);
-        } else {
-          await indexSingleCard(filePath, projectRoot, db);
-          const cardId = deriveCardId(filePath, projectRoot);
-          process.stderr.write(`[watcher] indexed: ${cardId}\n`);
+    // Run the whole batch through the shared queue so it never interleaves with
+    // an auto-reindex triggered by a concurrent query command.
+    await runExclusive(async () => {
+      for (const [filePath, event] of batch) {
+        try {
+          if (event === 'unlink') {
+            const cardId = deriveCardId(filePath, projectRoot);
+            removeCard(cardId, db);
+            process.stderr.write(`[watcher] removed: ${cardId}\n`);
+          } else {
+            await indexSingleCard(filePath, projectRoot, db);
+            const cardId = deriveCardId(filePath, projectRoot);
+            process.stderr.write(`[watcher] indexed: ${cardId}\n`);
+          }
+        } catch (err: unknown) {
+          const msg = err instanceof Error ? err.message : String(err);
+          process.stderr.write(`[watcher] error processing ${filePath}: ${msg}\n`);
         }
-      } catch (err: unknown) {
-        const msg = err instanceof Error ? err.message : String(err);
-        process.stderr.write(`[watcher] error processing ${filePath}: ${msg}\n`);
       }
-    }
+    });
 
     onActivity();
   };

@@ -91,17 +91,23 @@ export async function indexAllCards(projectRoot: string, db: Database.Database, 
       }
 
       upsertCard(db, card);
-      deleteEdgesForCard(db, card.id);
 
-      const links = extractLinks(card.content);
-      for (const link of links) {
-        insertEdge(db, {
-          source_id: card.id,
-          target_id: link.target_id,
-          context: link.context,
-          position: link.position,
-        });
-        edges++;
+      // Only rebuild edges when content actually changed — otherwise every full
+      // reindex needlessly deletes and re-inserts every edge row (and trips the
+      // FTS triggers). upsertCard above still refreshes mtime so the staleness
+      // check stops flagging this card.
+      if (contentChanged) {
+        deleteEdgesForCard(db, card.id);
+        const links = extractLinks(card.content);
+        for (const link of links) {
+          insertEdge(db, {
+            source_id: card.id,
+            target_id: link.target_id,
+            context: link.context,
+            position: link.position,
+          });
+          edges++;
+        }
       }
 
       // Only collect card text for embedding when content actually changed
@@ -165,16 +171,19 @@ export async function indexSingleCard(filePath: string, projectRoot: string, db:
 
   const transaction = db.transaction(() => {
     upsertCard(db, card);
-    deleteEdgesForCard(db, card.id);
 
-    const links = extractLinks(card.content);
-    for (const link of links) {
-      insertEdge(db, {
-        source_id: card.id,
-        target_id: link.target_id,
-        context: link.context,
-        position: link.position,
-      });
+    // Rebuild edges only when content changed (see indexAllCards rationale).
+    if (contentChanged) {
+      deleteEdgesForCard(db, card.id);
+      const links = extractLinks(card.content);
+      for (const link of links) {
+        insertEdge(db, {
+          source_id: card.id,
+          target_id: link.target_id,
+          context: link.context,
+          position: link.position,
+        });
+      }
     }
   });
 

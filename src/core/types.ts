@@ -126,6 +126,12 @@ export interface IConversionResult {
   filename_issues: IFilenameIssue[];
   warnings: IConversionWarning[];
   modified: boolean;
+  /**
+   * Single canonical rename target (relative path, with .md), computed in one
+   * pass from all filename issues. Undefined when the filename is already clean.
+   * The command performs exactly one rename to this path — never one per issue.
+   */
+  rename?: { from: string; to: string };
 }
 
 export interface IConversionSummary {

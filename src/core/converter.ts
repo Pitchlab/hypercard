@@ -1,10 +1,45 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import matter from 'gray-matter';
 import { extractLinks } from './parser.js';
 import { resolveFuzzyId } from '../util/fuzzy.js';
 import { deriveCardId, deriveCardType } from '../util/paths.js';
 import type { IConversionResult, IFilenameIssue, ILinkChange, IConversionWarning } from './types.js';
+
+/**
+ * Split raw file content into its frontmatter block (the text between the
+ * opening and closing `---` fences, exclusive) and the body. Returns
+ * `frontmatter: null` when the file has no frontmatter. This is deliberately
+ * textual — we never round-trip frontmatter through a YAML dumper, which would
+ * silently reorder keys and rewrite quote styles.
+ */
+function splitFrontmatter(raw: string): { frontmatter: string | null; body: string } {
+  const lines = raw.split('\n');
+  if (lines[0]?.trim() !== '---') {
+    return { frontmatter: null, body: raw };
+  }
+  for (let i = 1; i < lines.length; i++) {
+    if (lines[i].trim() === '---') {
+      const frontmatter = lines.slice(1, i).join('\n');
+      const body = lines.slice(i + 1).join('\n');
+      return { frontmatter, body };
+    }
+  }
+  // Unterminated frontmatter — treat the whole thing as body, untouched.
+  return { frontmatter: null, body: raw };
+}
+
+function frontmatterHasTags(frontmatter: string): boolean {
+  return /^\s*tags\s*:/m.test(frontmatter);
+}
+
+/**
+ * Normalize a basename to the canonical form in one pass: lowercase + spaces to
+ * underscores. Composing both fixes here avoids the bug where applying them
+ * independently leaves a space behind (`My File` → `my file`).
+ */
+function normalizeBasename(basename: string): string {
+  return basename.replace(/ /g, '_').toLowerCase();
+}
 
 export function convertFile(
   filePath: string,
@@ -19,28 +54,26 @@ export function convertFile(
   const linkChanges: ILinkChange[] = [];
   const filenameIssues: IFilenameIssue[] = [];
 
-  // --- Frontmatter ---
-  const hasFrontmatter = raw.trimStart().startsWith('---');
-  const parsed = matter(raw);
+  // --- Frontmatter (textual, no YAML round-trip) ---
+  const { frontmatter, body: originalBody } = splitFrontmatter(raw);
   let frontmatterAdded = false;
+  let frontmatterText = frontmatter;
 
-  if (!hasFrontmatter) {
-    // No frontmatter at all — add tags: []
-    parsed.data.tags = [];
+  if (frontmatter === null) {
+    frontmatterText = 'tags: []';
     frontmatterAdded = true;
-  } else if (!Array.isArray(parsed.data.tags)) {
-    // Frontmatter exists but no tags field
-    parsed.data.tags = [];
+  } else if (!frontmatterHasTags(frontmatter)) {
+    frontmatterText = frontmatter === '' ? 'tags: []' : `${frontmatter}\ntags: []`;
     frontmatterAdded = true;
   }
 
   // --- Link resolution ---
-  let body = parsed.content;
+  let body = originalBody;
 
   if (allCardIds && allCardIds.length > 0) {
-    const links = extractLinks(body);
+    const links = extractLinks(body); // already code-block aware
 
-    // Process links in reverse order so positions stay valid
+    // Process links in reverse order so positions stay valid as we splice.
     const sortedLinks = [...links].sort((a, b) => b.position - a.position);
 
     for (const link of sortedLinks) {
@@ -50,7 +83,6 @@ export function convertFile(
       const resolved = resolveFuzzyId(link.target_id, allCardIds);
 
       if (typeof resolved === 'string') {
-        // Build replacement string
         const originalMatch = link.display_text
           ? `[[${link.target_id}|${link.display_text}]]`
           : `[[${link.target_id}]]`;
@@ -58,7 +90,6 @@ export function convertFile(
           ? `[[${resolved}|${link.display_text}]]`
           : `[[${resolved}]]`;
 
-        // Replace at the exact position
         const before = body.slice(0, link.position);
         const after = body.slice(link.position + originalMatch.length);
         body = before + replacement + after;
@@ -79,30 +110,32 @@ export function convertFile(
   }
 
   // --- Reassemble ---
-  const convertedContent = matter.stringify(body, parsed.data);
+  const convertedContent =
+    frontmatterText === null ? body : `---\n${frontmatterText}\n---\n${body}`;
 
   // --- Filename checks ---
   const basename = path.basename(filePath, '.md');
+  const dir = path.dirname(relPath);
   const cardType = deriveCardType(cardId);
+  const canonical = normalizeBasename(basename);
+
+  // The suggestion for every issue points at the single fully-normalized name,
+  // so reporting and the actual rename can never disagree.
+  const suggestion = dir === '.' ? `${canonical}.md` : `${dir}/${canonical}.md`;
 
   if (basename.includes(' ')) {
-    const fixedName = basename.replace(/ /g, '_');
-    const dir = path.dirname(relPath);
-    const suggestion = dir === '.' ? `${fixedName}.md` : `${dir}/${fixedName}.md`;
     filenameIssues.push({ issue: 'spaces_in_filename', suggestion });
   }
-
   if (basename !== basename.toLowerCase()) {
-    const fixedName = basename.toLowerCase();
-    const dir = path.dirname(relPath);
-    const suggestion = dir === '.' ? `${fixedName}.md` : `${dir}/${fixedName}.md`;
     filenameIssues.push({ issue: 'uppercase_in_filename', suggestion });
   }
-
   if (!cardType) {
     filenameIssues.push({ issue: 'no_type_directory' });
     warnings.push({ file: relPath, message: 'File in project root (no type directory)' });
   }
+
+  const needsRename = canonical !== basename;
+  const rename = needsRename ? { from: relPath, to: suggestion } : undefined;
 
   const modified = frontmatterAdded || linkChanges.length > 0;
 
@@ -115,5 +148,6 @@ export function convertFile(
     filename_issues: filenameIssues,
     warnings,
     modified,
+    rename,
   };
 }

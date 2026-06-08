@@ -68,6 +68,27 @@ describe('extractLinks', () => {
     expect(links).toHaveLength(3);
     expect(links.map((l) => l.target_id)).toEqual(['a/one', 'b/two', 'c/three']);
   });
+
+  it('should NOT extract links inside fenced code blocks', () => {
+    const content = 'Real [[a/one]].\n\n```\nExample syntax: [[b/two]]\n```\n';
+    const links = extractLinks(content);
+    expect(links.map((l) => l.target_id)).toEqual(['a/one']);
+  });
+
+  it('should NOT extract links inside inline code spans', () => {
+    const content = 'Use `[[type/id]]` to link, e.g. [[real/card]].';
+    const links = extractLinks(content);
+    expect(links.map((l) => l.target_id)).toEqual(['real/card']);
+  });
+
+  it('should keep correct positions for links outside code', () => {
+    const content = '`[[code/ref]]` then [[real/ref]]';
+    const links = extractLinks(content);
+    expect(links).toHaveLength(1);
+    expect(content.slice(links[0].position, links[0].position + links[0].context.length)).toContain(
+      '[[real/ref]]',
+    );
+  });
 });
 
 describe('extractTitle', () => {

@@ -130,6 +130,45 @@ describe('hypercard convert', () => {
       expect(fs.existsSync(path.join(tempDir, 'factions', 'crimson_order.md'))).toBe(true);
       expect(fs.existsSync(oldPath)).toBe(false);
     });
+
+    it('renames a file with BOTH spaces and uppercase in one pass (no crash)', () => {
+      fs.mkdirSync(path.join(tempDir, 'factions'), { recursive: true });
+      const oldPath = path.join(tempDir, 'factions', 'Crimson Order.md');
+      fs.writeFileSync(oldPath, '---\ntags: []\n---\n\n# Crimson Order\n', 'utf-8');
+
+      const output = runCLI('convert "factions/Crimson Order.md" --write', tempDir);
+      const result = parseYaml(output);
+
+      // Exactly one rename to the fully-normalized name — not two, no ENOENT crash.
+      expect(result.files_renamed).toBe(1);
+      expect(fs.existsSync(path.join(tempDir, 'factions', 'crimson_order.md'))).toBe(true);
+      expect(fs.existsSync(oldPath)).toBe(false);
+    });
+
+    it('skips a rename that would overwrite an existing different file', () => {
+      fs.mkdirSync(path.join(tempDir, 'factions'), { recursive: true });
+      // Target already exists with different content.
+      fs.writeFileSync(
+        path.join(tempDir, 'factions', 'crimson_order.md'),
+        '---\ntags: []\n---\n\n# Existing\n\nKeep me.\n',
+        'utf-8',
+      );
+      const collidingPath = path.join(tempDir, 'factions', 'crimson order.md');
+      fs.writeFileSync(collidingPath, '---\ntags: []\n---\n\n# Colliding\n', 'utf-8');
+
+      const output = runCLI('convert "factions/crimson order.md" --write', tempDir);
+      const result = parseYaml(output) as Record<string, unknown> & {
+        files_renamed: number;
+        warnings?: { message: string }[];
+      };
+
+      // The existing file must be preserved; the rename is skipped with a warning.
+      expect(fs.readFileSync(path.join(tempDir, 'factions', 'crimson_order.md'), 'utf-8')).toContain(
+        'Keep me.',
+      );
+      expect(result.files_renamed).toBe(0);
+      expect((result.warnings ?? []).some((w) => /already exists/.test(w.message))).toBe(true);
+    });
   });
 
   describe('error cases', () => {

@@ -103,20 +103,36 @@ async function sendToSocket(
   });
 }
 
+/**
+ * Spawn the detached daemon, redirecting its stdout/stderr to
+ * `.hypercard/daemon.log` so a startup crash is diagnosable instead of vanishing
+ * into /dev/null. Returns the entry path used (for callers that wait on ready).
+ */
+function spawnDaemon(projectRoot: string): void {
+  const thisDir = new URL('.', import.meta.url).pathname;
+  const daemonEntry = path.resolve(thisDir, '..', 'daemon', 'index.js');
+
+  let stdio: 'ignore' | ['ignore', number, number] = 'ignore';
+  try {
+    const logFd = fs.openSync(path.join(projectRoot, '.hypercard', 'daemon.log'), 'a');
+    stdio = ['ignore', logFd, logFd];
+  } catch {
+    // Can't open log — fall back to discarding output rather than failing.
+  }
+
+  const child = spawn(process.execPath, [daemonEntry, projectRoot], {
+    detached: true,
+    stdio,
+    env: { ...process.env },
+  });
+  child.unref();
+}
+
 function launchDaemonBackground(projectRoot: string): void {
   try {
     // Don't launch if already running
     if (isDaemonRunning(projectRoot)) return;
-
-    const thisDir = new URL('.', import.meta.url).pathname;
-    const daemonEntry = path.resolve(thisDir, '..', 'daemon', 'index.js');
-
-    const child = spawn(process.execPath, [daemonEntry, projectRoot], {
-      detached: true,
-      stdio: 'ignore',
-      env: { ...process.env },
-    });
-    child.unref();
+    spawnDaemon(projectRoot);
   } catch {
     // Best-effort — don't fail if daemon can't start
   }
@@ -125,17 +141,8 @@ function launchDaemonBackground(projectRoot: string): void {
 export async function ensureDaemon(projectRoot: string): Promise<void> {
   if (isDaemonRunning(projectRoot)) return;
 
-  const thisDir = new URL('.', import.meta.url).pathname;
-  const daemonEntry = path.resolve(thisDir, '..', 'daemon', 'index.js');
-
   process.stderr.write(`[cli] starting daemon for ${projectRoot}...\n`);
-
-  const child = spawn(process.execPath, [daemonEntry, projectRoot], {
-    detached: true,
-    stdio: 'ignore',
-    env: { ...process.env },
-  });
-  child.unref();
+  spawnDaemon(projectRoot);
 
   // Wait for ready signal
   const readyPath = path.join(projectRoot, '.hypercard', 'daemon.ready');
@@ -152,7 +159,19 @@ export async function ensureDaemon(projectRoot: string): Promise<void> {
     elapsed += interval;
   }
 
-  throw new Error('Daemon did not become ready within 5s');
+  // Surface why it failed — the daemon log usually holds the real error
+  // (missing config, port in use, model load failure), instead of a bare timeout.
+  const logPath = path.join(projectRoot, '.hypercard', 'daemon.log');
+  let tail = '';
+  try {
+    const log = fs.readFileSync(logPath, 'utf-8').trimEnd().split('\n');
+    tail = log.slice(-5).join('\n');
+  } catch {
+    // no log
+  }
+  throw new Error(
+    `Daemon did not become ready within 5s.${tail ? ` Recent daemon log:\n${tail}` : ''}`,
+  );
 }
 
 export async function sendNotify(projectRoot: string, filePath: string): Promise<void> {

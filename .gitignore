@@ -1,4 +1,5 @@
 node_modules/
 dist/
-.maas/
+.hypercard/
+dev-docs/
 *.tsbuildinfo
