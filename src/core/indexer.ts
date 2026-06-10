@@ -5,7 +5,7 @@ import jsYaml from 'js-yaml';
 import type Database from 'better-sqlite3';
 import type { IIndexStats, IIndexWarning, IStaleCheck, IProgressCallback, IConfig } from './types.js';
 import { parseMarkdownFile, extractLinks } from './parser.js';
-import { upsertCard, deleteCard, deleteEdgesForCard, insertEdge, getAllCards, upsertEmbedding, deleteEmbedding, getContentHash } from './db.js';
+import { upsertCard, deleteCard, deleteEdgesForCard, insertEdge, getAllCards, upsertEmbedding, deleteEmbedding, getContentHash, getEmbeddedIds, getEmbedding } from './db.js';
 import { deriveCardId } from '../util/paths.js';
 import type { IEmbedder } from './embedder.js';
 import { formatCardText, serializeEmbedding } from './embedder.js';
@@ -50,6 +50,11 @@ export async function indexAllCards(projectRoot: string, db: Database.Database, 
   const existingIds = new Set(
     (db.prepare('SELECT id FROM cards').all() as { id: string }[]).map((r) => r.id),
   );
+
+  // Cards that already have an embedding. Used so cards whose content is
+  // unchanged but which never got embedded (e.g. indexed before the embedder
+  // had loaded) are still backfilled rather than skipped forever.
+  const embeddedIds = new Set(getEmbeddedIds(db));
 
   let cards_added = 0;
   let cards_updated = 0;
@@ -110,9 +115,10 @@ export async function indexAllCards(projectRoot: string, db: Database.Database, 
         }
       }
 
-      // Only collect card text for embedding when content actually changed
+      // Embed when content changed OR no embedding exists yet (backfill).
+      // Unchanged + already-embedded cards are skipped (the optimization).
       if (embedder) {
-        if (contentChanged) {
+        if (contentChanged || !embeddedIds.has(card.id)) {
           cardTexts.push({ id: card.id, text: formatCardText(card) });
         } else {
           embeddings_skipped++;
@@ -189,8 +195,8 @@ export async function indexSingleCard(filePath: string, projectRoot: string, db:
 
   transaction();
 
-  // Only generate embedding when content actually changed
-  if (embedder && contentChanged) {
+  // Generate embedding when content changed OR none exists yet (backfill).
+  if (embedder && (contentChanged || !getEmbedding(db, card.id))) {
     try {
       const text = formatCardText(card);
       const vec = await embedder.generateEmbedding(text);

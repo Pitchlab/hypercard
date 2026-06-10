@@ -1,7 +1,8 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import jsYaml from 'js-yaml';
-import { initDatabase } from '../core/db.js';
+import { initDatabase, getCardCount, getEmbeddingCount } from '../core/db.js';
+import { indexAllCards } from '../core/indexer.js';
 import { startServer } from './server.js';
 import { CommandHandler } from './handler.js';
 import { startWatcher } from './watcher.js';
@@ -46,9 +47,24 @@ export async function startDaemon(projectRoot: string): Promise<void> {
   const handler = new CommandHandler({ db, projectRoot, runExclusive });
 
   // Warm-load embedding model (non-blocking — daemon is usable before model loads)
-  loadEmbedder().then((embedder) => {
+  loadEmbedder().then(async (embedder) => {
     handler.setEmbedder(embedder);
     process.stderr.write('[daemon] embedder loaded\n');
+
+    // Auto-backfill: cards indexed before the model was ready have no embedding,
+    // so semantic/hybrid search would silently cover only part of the corpus.
+    // Now that the embedder is up, embed whatever is missing — no manual `index`
+    // needed. Runs on the shared queue so it can't overlap other reindex work.
+    const missing = getCardCount(db) - getEmbeddingCount(db);
+    if (missing > 0) {
+      process.stderr.write(`[daemon] backfilling ${missing} missing embedding(s)...\n`);
+      try {
+        await runExclusive(() => indexAllCards(projectRoot, db, embedder));
+        process.stderr.write(`[daemon] embeddings now ${getEmbeddingCount(db)}/${getCardCount(db)}\n`);
+      } catch (err) {
+        process.stderr.write(`[daemon] embedding backfill failed: ${err}\n`);
+      }
+    }
   }).catch((err) => {
     process.stderr.write(`[daemon] embedder failed to load: ${err}\n`);
   });
