@@ -10,6 +10,9 @@ interface ISearchOptions {
   bm25?: boolean;
   semantic?: boolean;
   hybrid?: boolean;
+  since?: string;
+  until?: string;
+  around?: string;
 }
 
 export async function searchCommand(query: string, options: ISearchOptions): Promise<void> {
@@ -34,6 +37,9 @@ export async function searchCommand(query: string, options: ISearchOptions): Pro
       where: options.where,
       limit,
       mode,
+      since: options.since,
+      until: options.until,
+      around: options.around,
     }) as Record<string, unknown>;
 
     if (data.warning) {

@@ -26,6 +26,7 @@ describe('WHERE filter functionality', () => {
         content     TEXT NOT NULL,
         frontmatter TEXT DEFAULT '{}',
         mtime       REAL NOT NULL,
+        timestamp   REAL,
         content_hash TEXT DEFAULT ''
       );
 
@@ -94,6 +95,7 @@ describe('WHERE filter functionality', () => {
     content: `Content for ${id}`,
     frontmatter,
     mtime: Date.now(),
+    timestamp: Date.now(),
     content_hash: '',
   });
 

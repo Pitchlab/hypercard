@@ -5,6 +5,7 @@ import matter from 'gray-matter';
 import type { ICard, IParsedLink } from './types.js';
 import { deriveCardId, deriveCardType } from '../util/paths.js';
 import { stripCodeRegions } from '../util/markdown.js';
+import { deriveTimestamp } from '../util/dates.js';
 
 const LINK_REGEX = /\[\[([^\]|]+)(?:\|([^\]]*))?\]\]/g;
 const TITLE_REGEX = /^#\s+(.+)$/m;
@@ -64,6 +65,7 @@ export function parseMarkdownFile(filePath: string, projectRoot: string): ICard 
     content,
     frontmatter: frontmatterData as Record<string, unknown>,
     mtime: stat.mtimeMs,
+    timestamp: deriveTimestamp(frontmatterData as Record<string, unknown>, stat.mtimeMs),
     content_hash,
   };
 }

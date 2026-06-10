@@ -97,7 +97,13 @@ program
     '  hypercard ls --orphans             # Cards with zero links in or out\n' +
     '  hypercard ls --search "crimson"    # Full-text search\n' +
     '  hypercard ls --search "military" --type=factions  # Search + type filter\n' +
-    '  hypercard ls --search "warrior" --tag=antagonist  # Search + tag filter\n\n' +
+    '  hypercard ls --search "warrior" --tag=antagonist  # Search + tag filter\n' +
+    '  hypercard ls --since 2025-01-01    # Cards dated on/after a date\n' +
+    '  hypercard ls --since 2025-01-01 --until 2025-03-31  # Date range\n' +
+    '  hypercard ls --around 2025-02-14   # Sort by temporal proximity (nearest first)\n\n' +
+    'Temporal layer: each card has a canonical timestamp (a frontmatter date field\n' +
+    '— date/created/published/... — falling back to file mtime). --since/--until\n' +
+    'filter on it; --around orders by closeness in time.\n\n' +
     'Output: count, cards[] (id, title, type, tags, links_out, links_in)',
   )
   .option('--type <type>', 'Filter cards by type (first directory segment)')
@@ -105,6 +111,9 @@ program
   .option('--where <filter...>', 'Filter by frontmatter key=value (repeatable, AND logic)')
   .option('--orphans', 'Show only orphan cards (no incoming or outgoing links)')
   .option('--search <query>', 'Full-text search using FTS5 (combines with --type, --tag, --where)')
+  .option('--since <date>', 'Only cards with timestamp on/after this date (ISO, e.g. 2025-01-01)')
+  .option('--until <date>', 'Only cards with timestamp on/before this date (inclusive of the day)')
+  .option('--around <date>', 'Order by temporal proximity to this date (nearest first)')
   .action(lsCommand);
 
 program
@@ -136,7 +145,12 @@ program
     '  hypercard search "crimson" --limit=20         # More results\n' +
     '  hypercard search "warriors" --semantic        # Semantic only\n' +
     '  hypercard search "crimson" --bm25             # Keyword only\n' +
-    '  hypercard search "crimson" --where status=published  # Filter by frontmatter\n\n' +
+    '  hypercard search "crimson" --where status=published  # Filter by frontmatter\n' +
+    '  hypercard search "crimson" --since 2025-01-01 --until 2025-06-30  # Restrict to a date range\n' +
+    '  hypercard search "crimson" --around 2025-02-14  # Fuse temporal proximity into ranking\n\n' +
+    'Temporal layer: --since/--until restrict results by card timestamp; --around\n' +
+    'adds temporal proximity as a third RRF dimension alongside BM25 + semantic\n' +
+    '(results gain a temporal_rank field).\n\n' +
     'Output: query, mode, count, results[] (id, title, type, tags, score, snippet)',
   )
   .option('--type <type>', 'Filter by type')
@@ -146,6 +160,9 @@ program
   .option('--bm25', 'Keyword (BM25) search only')
   .option('--semantic', 'Semantic vector search only')
   .option('--hybrid', 'Hybrid BM25 + semantic search (default)')
+  .option('--since <date>', 'Only results with timestamp on/after this date (ISO, e.g. 2025-01-01)')
+  .option('--until <date>', 'Only results with timestamp on/before this date (inclusive of the day)')
+  .option('--around <date>', 'Fuse temporal proximity to this date into ranking (RRF)')
   .action(searchCommand);
 
 program

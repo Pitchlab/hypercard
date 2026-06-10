@@ -1,6 +1,11 @@
 # Changelog
 
-## [Unreleased] - 2026-06-08
+## [Unreleased] - 2026-06-10
+
+### Added
+- **Temporal layer — time as a queryable dimension over cards.** Each card now carries a canonical `timestamp` (epoch ms), pre-computed at index time from a frontmatter date field (`date`/`created`/`created_at`/`published`/`timestamp`/`updated`/`modified`/…, in priority order) with a fallback to file mtime (`src/util/dates.ts`). New SQLite `timestamp` column + index, with an automatic migration (backfilled from mtime) for existing databases.
+  - **`ls` and `search` gain `--since` / `--until` / `--around`.** `--since`/`--until` filter by card timestamp (a bare `--until 2025-06-10` is inclusive of the whole day); `--around <date>` is a first-class temporal-proximity query ("what happened around the same time"). On `ls --around`, cards are ordered nearest-in-time first. On `search --around`, temporal proximity is fused into ranking as a third RRF dimension alongside BM25 + semantic, and results gain a `temporal_rank` field (and `timestamp`).
+  - This is the implementable middin-ground from the `hypergraph-temporal-layer` idea note: a separate queryable temporal layer, pre-processed at index time and fused at query time via RRF — **without** hard-typed temporal edges. The heavier vision (time as a learned vector embedding / multiplex graph embeddings) remains future research.
 
 ### Fixed
 - **Code-block-aware link extraction.** `[[refs]]` inside fenced (```` ``` ````/`~~~`) or inline code are no longer indexed as edges, rewritten by `convert`, or matched by `link`/`unlink`. New `src/util/markdown.ts` (`stripCodeRegions`, `structuralLineFlags`) preserves character offsets so context/positions stay correct.
@@ -13,7 +18,7 @@
 ### Changed
 - **Docs accuracy.** Marked `lint`/`rename` as planned-not-implemented across README and CLAUDE.md; documented the shipped `link`/`unlink`/`suggest-links`/`start` commands; corrected the search default (hybrid, not BM25); fixed the embeddings package name (`@huggingface/transformers ^3.8.1`, not `@xenova/transformers`); clarified that link maintenance is the one exception to "never writes content".
 - **Tooling**: removed the broken `test:e2e` script (no config/tests existed; daemon lifecycle is covered by the CLI integration suite). `.gitignore` now ignores `.hypercard/` and `dev-docs/` (was a stale `.maas/`).
-- **Tests**: +31 new tests (245 total) covering code-block stripping, linker insert/remove safety, the canonical rename + collision guard, and the serial queue + startup lock.
+- **Tests**: +51 new tests (265 total) covering code-block stripping, linker insert/remove safety, the canonical rename + collision guard, the serial queue + startup lock, and the temporal layer (timestamp derivation, date-boundary parsing, range filters, proximity ordering, RRF temporal fusion).
 
 ### Removed
 - Internal planning docs (`docs/`) moved to local-only `dev-docs/` (gitignored) and purged from git history.

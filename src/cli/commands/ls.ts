@@ -8,6 +8,9 @@ export async function lsCommand(options: {
   orphans?: boolean;
   where?: string[];
   search?: string;
+  since?: string;
+  until?: string;
+  around?: string;
 }): Promise<void> {
   const projectRoot = findProjectRoot();
   if (!projectRoot) {
@@ -22,6 +25,9 @@ export async function lsCommand(options: {
       orphans: options.orphans,
       where: options.where,
       search: options.search,
+      since: options.since,
+      until: options.until,
+      around: options.around,
     });
     outputYaml(data);
   } catch (err: unknown) {
