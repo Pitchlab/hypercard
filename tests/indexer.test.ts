@@ -2,8 +2,9 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
-import { initDatabase } from '../src/core/db.js';
+import { initDatabase, getEmbeddingCount, getEmbedding } from '../src/core/db.js';
 import { indexAllCards, indexSingleCard, checkStaleness } from '../src/core/indexer.js';
+import type { IEmbedder } from '../src/core/embedder.js';
 import type Database from 'better-sqlite3';
 
 describe('indexer', () => {
@@ -314,6 +315,60 @@ describe('indexer', () => {
       expect(result.stale).toContain('characters/voss');
       expect(result.missing).toContain('orphan');
       expect(result.new_files).toContain('items/magic_sword.md');
+    });
+  });
+
+  describe('embedding backfill', () => {
+    function fakeEmbedder(): IEmbedder & { calls: number } {
+      const e = {
+        calls: 0,
+        async generateEmbedding(_text: string): Promise<Float32Array> {
+          e.calls++;
+          return new Float32Array(384).fill(0.01);
+        },
+        async generateEmbeddings(texts: string[]): Promise<Float32Array[]> {
+          e.calls += texts.length;
+          return texts.map(() => new Float32Array(384).fill(0.01));
+        },
+      };
+      return e;
+    }
+
+    it('backfills embeddings for cards indexed before an embedder was available', async () => {
+      // First pass: no embedder (one-shot CLI, or daemon before warm-load)
+      await indexAllCards(tempDir, db);
+      expect(getEmbeddingCount(db)).toBe(0);
+      const cardCount = (db.prepare('SELECT COUNT(*) as c FROM cards').get() as { c: number }).c;
+
+      // Second pass: embedder present, content unchanged → must backfill ALL
+      const embedder = fakeEmbedder();
+      const stats = await indexAllCards(tempDir, db, embedder);
+      expect(getEmbeddingCount(db)).toBe(cardCount);
+      expect(embedder.calls).toBe(cardCount);
+      expect(stats.embeddings_generated).toBe(cardCount);
+    });
+
+    it('does not re-embed cards already embedded with unchanged content', async () => {
+      const embedder = fakeEmbedder();
+      await indexAllCards(tempDir, db, embedder);
+      const afterFirst = embedder.calls;
+      expect(afterFirst).toBeGreaterThan(0);
+
+      const stats = await indexAllCards(tempDir, db, embedder);
+      expect(embedder.calls).toBe(afterFirst); // no new embedding work
+      expect(stats.embeddings_generated).toBe(0);
+      expect(stats.embeddings_skipped).toBeGreaterThan(0);
+    });
+
+    it('indexSingleCard backfills a missing embedding even when content is unchanged', async () => {
+      await indexAllCards(tempDir, db); // content + hash stored, no embeddings
+      const id = 'characters/voss';
+      expect(getEmbedding(db, id)).toBeNull();
+
+      const embedder = fakeEmbedder();
+      await indexSingleCard('characters/voss.md', tempDir, db, embedder);
+      expect(getEmbedding(db, id)).not.toBeNull();
+      expect(embedder.calls).toBe(1);
     });
   });
 });

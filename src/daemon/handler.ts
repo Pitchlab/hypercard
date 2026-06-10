@@ -91,15 +91,29 @@ export class CommandHandler implements ICommandHandler {
   }
 
   private handleStatus(): Record<string, unknown> {
-    return {
+    const cards = getCardCount(this.db);
+    const embeddings = getEmbeddingCount(this.db);
+
+    const status: Record<string, unknown> = {
       daemon: 'running',
       pid: process.pid,
       uptime_seconds: Math.round((Date.now() - this.startTime) / 1000),
-      cards: getCardCount(this.db),
+      cards,
       types: getTypes(this.db),
-      embeddings: getEmbeddingCount(this.db),
+      embeddings,
       embedder_loaded: !!this.embedder,
     };
+
+    // Surface incomplete embedding coverage instead of failing silently —
+    // semantic/hybrid search only covers embedded cards until backfilled.
+    if (embeddings < cards) {
+      status.embeddings_pending = cards - embeddings;
+      status.warning =
+        `Embeddings incomplete: ${embeddings}/${cards} cards. ` +
+        `Run "hypercard index" to backfill — semantic/hybrid search only covers embedded cards until then.`;
+    }
+
+    return status;
   }
 
   private handleGet(args: Record<string, unknown>): Record<string, unknown> {

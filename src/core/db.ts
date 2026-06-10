@@ -511,6 +511,15 @@ export function getAllEmbeddings(db: Database.Database): { id: string; embedding
   return db.prepare('SELECT id, embedding FROM cards_vec').all() as { id: string; embedding: Buffer }[];
 }
 
+/**
+ * IDs of cards that already have an embedding — used to decide which cards still
+ * need one. Selects only ids (no blobs) so it's cheap to load the whole set.
+ */
+export function getEmbeddedIds(db: Database.Database): string[] {
+  const rows = db.prepare('SELECT id FROM cards_vec').all() as { id: string }[];
+  return rows.map((r) => r.id);
+}
+
 export function deleteEmbedding(db: Database.Database, cardId: string): void {
   db.prepare('DELETE FROM cards_vec WHERE id = ?').run(cardId);
 }
