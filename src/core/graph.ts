@@ -1,5 +1,6 @@
 import type Database from 'better-sqlite3';
 import { getCardById, getOutgoingLinks, getIncomingLinks } from './db.js';
+import { formatDate } from '../util/dates.js';
 
 export interface IGraphOptions {
   rootId: string;
@@ -101,6 +102,88 @@ function buildGraphNode(
   // meta and id: no content/snippet/links
 
   return node;
+}
+
+/**
+ * Compact representation of a traversed neighbor card. Neighbors are context,
+ * not primary results, so they never carry snippet/content/score — just enough
+ * to identify them and place them in time. Deeper hops nest recursively.
+ */
+export interface ICompactNode {
+  id: string;
+  title: string;
+  type: string;
+  timestamp: string; // ISO calendar date (YYYY-MM-DD), consistent with --format list
+  tags: string[];
+  links_out?: ICompactNode[];
+  links_in?: ICompactNode[];
+}
+
+export interface ICompactNeighborhood {
+  links_out: ICompactNode[];
+  links_in: ICompactNode[];
+}
+
+const TRAVERSE_MAX_NODES = 50; // hard cap per hit, mirroring graph --max
+
+/**
+ * Build a search hit's link neighborhood as nested compact nodes, following
+ * both directions up to `depth` hops. Cycles are avoided per hit (a hit never
+ * re-includes itself or an already-seen card), and a shared node budget bounds
+ * total fan-out so depth 2–3 can't explode the output.
+ */
+export function buildSearchNeighborhood(
+  db: Database.Database,
+  hitId: string,
+  depth: number,
+): ICompactNeighborhood {
+  const visited = new Set<string>([hitId]);
+  const budget = { remaining: TRAVERSE_MAX_NODES };
+  return expandNeighbors(db, hitId, depth, visited, budget);
+}
+
+function toCompactNode(db: Database.Database, cardId: string): ICompactNode | null {
+  const card = getCardById(db, cardId);
+  if (!card) return null; // broken link — skip
+  return {
+    id: card.id,
+    title: card.title,
+    type: card.type,
+    timestamp: formatDate(card.timestamp),
+    tags: card.tags,
+  };
+}
+
+function expandNeighbors(
+  db: Database.Database,
+  cardId: string,
+  depthLeft: number,
+  visited: Set<string>,
+  budget: { remaining: number },
+): ICompactNeighborhood {
+  const collect = (ids: string[]): ICompactNode[] => {
+    const out: ICompactNode[] = [];
+    for (const id of ids) {
+      if (budget.remaining <= 0) break;
+      if (visited.has(id)) continue;
+      const node = toCompactNode(db, id);
+      if (!node) continue;
+      visited.add(id);
+      budget.remaining--;
+      if (depthLeft > 1) {
+        const sub = expandNeighbors(db, id, depthLeft - 1, visited, budget);
+        if (sub.links_out.length) node.links_out = sub.links_out;
+        if (sub.links_in.length) node.links_in = sub.links_in;
+      }
+      out.push(node);
+    }
+    return out;
+  };
+
+  return {
+    links_out: collect(getOutgoingLinks(db, cardId)),
+    links_in: collect(getIncomingLinks(db, cardId)),
+  };
 }
 
 export function traverseGraph(db: Database.Database, options: IGraphOptions): IGraphResult {

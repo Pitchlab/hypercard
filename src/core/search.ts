@@ -3,6 +3,7 @@ import type { ISearchResult } from './types.js';
 import type { IEmbedder } from './embedder.js';
 import { cosineSimilarity, deserializeEmbedding } from './embedder.js';
 import { searchCardsWithScores } from './db.js';
+import { formatDate } from '../util/dates.js';
 
 export { cosineSimilarity };
 
@@ -11,10 +12,48 @@ interface ISearchOptions {
   tag?: string;
   where?: Record<string, string>;
   limit?: number;
-  // Temporal layer
-  since?: number;
-  until?: number;
-  around?: number;
+  // Temporal layer — time is a scalar, so just an inclusive range.
+  after?: number;
+  before?: number;
+}
+
+export type SearchFormat = 'list' | 'summary' | 'full';
+
+/**
+ * Shape a search hit for output according to --format.
+ * - `list`: compact one-liner fields (id, title, date, tags, score)
+ * - `summary` (default): id, title, type, tags, score, snippet
+ * - `full`: summary + the card's full content (passed in by the caller)
+ */
+export function shapeSearchResult(
+  r: ISearchResult,
+  format: SearchFormat,
+  content?: string,
+): Record<string, unknown> {
+  if (format === 'list') {
+    return {
+      id: r.id,
+      title: r.title,
+      timestamp: r.timestamp !== undefined ? formatDate(r.timestamp) : undefined,
+      tags: r.tags,
+      score: r.score,
+    };
+  }
+
+  const base: Record<string, unknown> = {
+    id: r.id,
+    title: r.title,
+    type: r.type,
+    tags: r.tags,
+    score: r.score,
+    snippet: r.snippet,
+  };
+
+  if (format === 'full') {
+    base.content = content ?? '';
+  }
+
+  return base;
 }
 
 interface IVecRow {
@@ -53,46 +92,13 @@ function passesFilters(
     }
   }
 
-  if (options.since !== undefined || options.until !== undefined) {
+  if (options.after !== undefined || options.before !== undefined) {
     const ts = row.timestamp ?? row.mtime;
-    if (options.since !== undefined && ts < options.since) return false;
-    if (options.until !== undefined && ts > options.until) return false;
+    if (options.after !== undefined && ts < options.after) return false;
+    if (options.before !== undefined && ts > options.before) return false;
   }
 
   return true;
-}
-
-/**
- * Fuse a temporal-proximity dimension into an already-ranked result list using
- * Reciprocal Rank Fusion — the same scheme that fuses BM25 + semantic, extended
- * with a third "temporal" ranker. Closest-in-time cards get the best temporal
- * rank; the combined score reorders the list and is sliced to `limit`.
- *
- * This is the query-time half of the temporal layer: relevance and temporal
- * nearness become co-equal dimensions over the same nodes.
- */
-export function fuseTemporal(results: ISearchResult[], around: number, limit: number): ISearchResult[] {
-  const k = 60; // RRF constant, matching searchHybrid
-  const safeTs = (r: ISearchResult): number => r.timestamp ?? 0;
-
-  const temporalSorted = [...results].sort(
-    (a, b) => Math.abs(safeTs(a) - around) - Math.abs(safeTs(b) - around),
-  );
-  const temporalRank = new Map<string, number>();
-  temporalSorted.forEach((r, i) => temporalRank.set(r.id, i + 1));
-
-  const fused = results.map((r, relevanceRank) => {
-    const tRank = temporalRank.get(r.id) ?? results.length + 1;
-    const rrfScore = 1 / (k + (relevanceRank + 1)) + 1 / (k + tRank);
-    return {
-      ...r,
-      temporal_rank: tRank,
-      score: Math.round(rrfScore * 100000) / 100000,
-    };
-  });
-
-  fused.sort((a, b) => b.score - a.score);
-  return fused.slice(0, limit);
 }
 
 function extractSnippet(content: string): string {

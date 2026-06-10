@@ -175,16 +175,13 @@ export function getCardsByWhere(db: Database.Database, filters: Record<string, s
 }
 
 /**
- * Temporal-layer filter/ranking options shared by list and search queries.
- * - `since`/`until`: inclusive epoch-ms bounds on the card timestamp.
- * - `around`: epoch-ms anchor for temporal-proximity ordering ("what happened
- *   around the same time"). In list queries it reorders results by closeness;
- *   in search it feeds a temporal rank into RRF fusion (see search.ts).
+ * Temporal-layer filter options shared by list and search queries.
+ * `after`/`before` are inclusive epoch-ms bounds on the card timestamp.
+ * Time is a scalar — range comparison is all it needs.
  */
 export interface ITemporalOptions {
-  since?: number;
-  until?: number;
-  around?: number;
+  after?: number;
+  before?: number;
 }
 
 export type IFilterOptions = {
@@ -221,27 +218,20 @@ export function getCardsFiltered(
   }
 
   // Temporal range filters
-  if (options.since !== undefined) {
+  if (options.after !== undefined) {
     whereClauses.push('timestamp >= ?');
-    params.push(options.since);
+    params.push(options.after);
   }
-  if (options.until !== undefined) {
+  if (options.before !== undefined) {
     whereClauses.push('timestamp <= ?');
-    params.push(options.until);
+    params.push(options.before);
   }
 
   let query = 'SELECT * FROM cards';
   if (whereClauses.length > 0) {
     query += ' WHERE ' + whereClauses.join(' AND ');
   }
-
-  // Temporal proximity ordering: closest in time first. Otherwise stable by id.
-  if (options.around !== undefined) {
-    query += ' ORDER BY ABS(timestamp - ?) ASC, id';
-    params.push(options.around);
-  } else {
-    query += ' ORDER BY id';
-  }
+  query += ' ORDER BY id';
 
   if (options.limit !== undefined) {
     query += ' LIMIT ?';
@@ -290,13 +280,13 @@ export function searchCardsFiltered(
     }
   }
 
-  if (options.since !== undefined) {
+  if (options.after !== undefined) {
     conditions.push('cards.timestamp >= ?');
-    params.push(options.since);
+    params.push(options.after);
   }
-  if (options.until !== undefined) {
+  if (options.before !== undefined) {
     conditions.push('cards.timestamp <= ?');
-    params.push(options.until);
+    params.push(options.before);
   }
 
   const sql = `
@@ -336,13 +326,13 @@ export function searchCardsWithScores(
     }
   }
 
-  if (options.since !== undefined) {
+  if (options.after !== undefined) {
     conditions.push('cards.timestamp >= ?');
-    params.push(options.since);
+    params.push(options.after);
   }
-  if (options.until !== undefined) {
+  if (options.before !== undefined) {
     conditions.push('cards.timestamp <= ?');
-    params.push(options.until);
+    params.push(options.before);
   }
 
   const limit = options.limit ?? 10;

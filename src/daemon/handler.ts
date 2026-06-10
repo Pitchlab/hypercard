@@ -15,13 +15,17 @@ import {
   getEmbeddingCount,
 } from '../core/db.js';
 import { indexAllCards, indexSingleCard, checkStaleness, removeCard } from '../core/indexer.js';
-import { traverseGraph } from '../core/graph.js';
+import { traverseGraph, buildSearchNeighborhood } from '../core/graph.js';
 import type { IGraphOptions } from '../core/graph.js';
 import { resolveFuzzyId } from '../util/fuzzy.js';
 import type { IEmbedder } from '../core/embedder.js';
-import { searchSemantic, searchHybrid, fuseTemporal } from '../core/search.js';
+import { searchSemantic, searchHybrid, shapeSearchResult } from '../core/search.js';
+import type { SearchFormat } from '../core/search.js';
 import { parseDateBoundary } from '../util/dates.js';
 import type { ISearchResult } from '../core/types.js';
+
+const SEARCH_FORMATS: SearchFormat[] = ['list', 'summary', 'full'];
+const SEARCH_MODES = ['bm25', 'semantic', 'hybrid'];
 import { suggestLinks } from '../core/suggestions.js';
 import { createSerialQueue } from './lifecycle.js';
 import type { RunExclusive } from './lifecycle.js';
@@ -140,8 +144,7 @@ export class CommandHandler implements ICommandHandler {
 
     const whereFilters = this.parseWhereFilters(args.where as string[] | undefined);
     const temporal = this.parseTemporalArgs(args);
-    const hasTemporal =
-      temporal.since !== undefined || temporal.until !== undefined || temporal.around !== undefined;
+    const hasTemporal = temporal.after !== undefined || temporal.before !== undefined;
     const hasWhere = Object.keys(whereFilters).length > 0;
 
     let cards;
@@ -150,17 +153,16 @@ export class CommandHandler implements ICommandHandler {
         type: args.type as string | undefined,
         tag: args.tag as string | undefined,
         where: hasWhere ? whereFilters : undefined,
-        since: temporal.since,
-        until: temporal.until,
+        after: temporal.after,
+        before: temporal.before,
       });
     } else if (args.type || args.tag || hasWhere || hasTemporal) {
       cards = getCardsFiltered(this.db, {
         type: args.type as string | undefined,
         tag: args.tag as string | undefined,
         where: hasWhere ? whereFilters : undefined,
-        since: temporal.since,
-        until: temporal.until,
-        around: temporal.around,
+        after: temporal.after,
+        before: temporal.before,
       });
     } else {
       cards = getAllCards(this.db);
@@ -192,20 +194,22 @@ export class CommandHandler implements ICommandHandler {
 
     const hasEmbeddings = getEmbeddingCount(this.db) > 0;
     const mode = (args.mode as string) ?? (hasEmbeddings ? 'hybrid' : 'bm25');
-    const limit = (args.limit as number) ?? 10;
+    if (!SEARCH_MODES.includes(mode)) {
+      throw new Error(`Unknown search mode: ${mode}. Expected bm25, semantic, or hybrid.`);
+    }
+    const topk = (args.topk as number) ?? 10;
+    const format = this.parseFormat(args.format);
+    const traverse = this.parseTraverseDepth(args.traverse);
     const whereFilters = this.parseWhereFilters(args.where as string[] | undefined);
     const temporal = this.parseTemporalArgs(args);
 
-    // When fusing a temporal dimension, pull a wider candidate pool so cards
-    // that are temporally near but not top-relevant can surface, then fuse down.
-    const poolLimit = temporal.around !== undefined ? Math.max(limit, 50) : limit;
     const searchOptions = {
       type: args.type as string | undefined,
       tag: args.tag as string | undefined,
       where: Object.keys(whereFilters).length > 0 ? whereFilters : undefined,
-      since: temporal.since,
-      until: temporal.until,
-      limit: poolLimit,
+      after: temporal.after,
+      before: temporal.before,
+      limit: topk,
     };
 
     let results: ISearchResult[];
@@ -228,17 +232,45 @@ export class CommandHandler implements ICommandHandler {
     } else if (mode === 'hybrid') {
       results = await searchHybrid(this.db, query, this.embedder, searchOptions);
     } else {
-      throw new Error(`Unknown search mode: ${mode}`);
+      throw new Error(`Unknown search mode: ${mode}. Expected bm25, semantic, or hybrid.`);
     }
 
-    // Temporal layer: fuse proximity-to-anchor as a third RRF dimension.
-    if (temporal.around !== undefined) {
-      results = fuseTemporal(results, temporal.around, limit);
-    }
+    // Shape each hit per --format, optionally attaching a compact link
+    // neighborhood (--traverse). Neighbors are always compact regardless of
+    // --format — they are context, not primary results.
+    const shaped = results.map((r) => {
+      const content = format === 'full' ? (getCardById(this.db, r.id)?.content ?? '') : undefined;
+      const entry = shapeSearchResult(r, format, content);
+      if (traverse > 0) {
+        const hood = buildSearchNeighborhood(this.db, r.id, traverse);
+        entry.links_out = hood.links_out;
+        entry.links_in = hood.links_in;
+      }
+      return entry;
+    });
 
-    const response: Record<string, unknown> = { query, mode: effectiveMode, count: results.length, results };
+    const response: Record<string, unknown> = { query, mode: effectiveMode, format, count: shaped.length, results: shaped };
+    if (traverse > 0) response.traverse = traverse;
     if (warning) response.warning = warning;
     return response;
+  }
+
+  private parseFormat(raw: unknown): SearchFormat {
+    if (raw === undefined || raw === null) return 'summary';
+    const value = String(raw);
+    if (!SEARCH_FORMATS.includes(value as SearchFormat)) {
+      throw new Error(`Invalid --format "${value}". Expected one of: ${SEARCH_FORMATS.join(', ')}`);
+    }
+    return value as SearchFormat;
+  }
+
+  private parseTraverseDepth(raw: unknown): number {
+    if (raw === undefined || raw === null) return 0;
+    const depth = Math.trunc(Number(raw));
+    if (Number.isNaN(depth) || depth < 0) {
+      throw new Error(`Invalid --traverse "${raw}". Expected a depth >= 0.`);
+    }
+    return Math.min(depth, 3); // cap at 3 hops, matching the graph command
   }
 
   private handleGraph(args: Record<string, unknown>): unknown {
@@ -339,31 +371,22 @@ export class CommandHandler implements ICommandHandler {
   }
 
   /**
-   * Parse the temporal-layer CLI args (since/until/around) into epoch-ms bounds.
-   * `until` for a bare date is treated as end-of-day so the day is included.
-   * Throws on unparseable dates so the user gets a clear error.
+   * Parse the temporal-layer CLI args (--after / --before) into inclusive
+   * epoch-ms bounds. `before` for a bare date is treated as end-of-day so the
+   * whole day is included. Throws on unparseable dates for a clear error.
    */
-  private parseTemporalArgs(args: Record<string, unknown>): {
-    since?: number;
-    until?: number;
-    around?: number;
-  } {
-    const out: { since?: number; until?: number; around?: number } = {};
+  private parseTemporalArgs(args: Record<string, unknown>): { after?: number; before?: number } {
+    const out: { after?: number; before?: number } = {};
 
-    if (args.since !== undefined && args.since !== null) {
-      const t = parseDateBoundary(String(args.since));
-      if (t === null) throw new Error(`Invalid --since date: "${args.since}"`);
-      out.since = t;
+    if (args.after !== undefined && args.after !== null) {
+      const t = parseDateBoundary(String(args.after));
+      if (t === null) throw new Error(`Invalid --after date: "${args.after}"`);
+      out.after = t;
     }
-    if (args.until !== undefined && args.until !== null) {
-      const t = parseDateBoundary(String(args.until), { endOfDay: true });
-      if (t === null) throw new Error(`Invalid --until date: "${args.until}"`);
-      out.until = t;
-    }
-    if (args.around !== undefined && args.around !== null) {
-      const t = parseDateBoundary(String(args.around));
-      if (t === null) throw new Error(`Invalid --around date: "${args.around}"`);
-      out.around = t;
+    if (args.before !== undefined && args.before !== null) {
+      const t = parseDateBoundary(String(args.before), { endOfDay: true });
+      if (t === null) throw new Error(`Invalid --before date: "${args.before}"`);
+      out.before = t;
     }
 
     return out;

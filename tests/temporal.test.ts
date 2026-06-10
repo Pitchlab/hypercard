@@ -1,8 +1,9 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import Database from 'better-sqlite3';
-import { initDatabase, upsertCard, getCardsFiltered, searchCardsWithScores } from '../src/core/db.js';
-import { parseTimestamp, deriveTimestamp, parseDateBoundary } from '../src/util/dates.js';
-import { fuseTemporal } from '../src/core/search.js';
+import { initDatabase, upsertCard, getCardsFiltered, searchCardsWithScores, insertEdge } from '../src/core/db.js';
+import { parseTimestamp, deriveTimestamp, parseDateBoundary, formatDate } from '../src/util/dates.js';
+import { shapeSearchResult } from '../src/core/search.js';
+import { buildSearchNeighborhood } from '../src/core/graph.js';
 import type { ICard, ISearchResult } from '../src/core/types.js';
 
 const DAY = 24 * 60 * 60 * 1000;
@@ -89,7 +90,14 @@ describe('parseDateBoundary', () => {
   });
 });
 
-describe('getCardsFiltered — temporal range and proximity', () => {
+describe('formatDate', () => {
+  it('renders epoch ms as a compact UTC calendar date', () => {
+    expect(formatDate(ts('2025-03-15'))).toBe('2025-03-15');
+    expect(formatDate(ts('2025-03-15T22:30:00Z'))).toBe('2025-03-15');
+  });
+});
+
+describe('getCardsFiltered — temporal range', () => {
   let db: Database.Database;
 
   beforeEach(() => {
@@ -100,30 +108,24 @@ describe('getCardsFiltered — temporal range and proximity', () => {
     upsertCard(db, makeCard({ id: 'log/apr', timestamp: ts('2025-04-15') }));
   });
 
-  it('filters with --since (inclusive lower bound)', () => {
-    const cards = getCardsFiltered(db, { since: ts('2025-03-01') });
+  it('filters with --after (inclusive lower bound)', () => {
+    const cards = getCardsFiltered(db, { after: ts('2025-03-01') });
     expect(cards.map((c) => c.id)).toEqual(['log/apr', 'log/mar']);
   });
 
-  it('filters with --until (inclusive upper bound)', () => {
-    const cards = getCardsFiltered(db, { until: ts('2025-02-20') });
+  it('filters with --before (inclusive upper bound)', () => {
+    const cards = getCardsFiltered(db, { before: ts('2025-02-20') });
     expect(cards.map((c) => c.id).sort()).toEqual(['log/feb', 'log/jan']);
   });
 
-  it('filters with a since+until range', () => {
-    const cards = getCardsFiltered(db, { since: ts('2025-02-01'), until: ts('2025-03-31') });
+  it('filters with an after+before range', () => {
+    const cards = getCardsFiltered(db, { after: ts('2025-02-01'), before: ts('2025-03-31') });
     expect(cards.map((c) => c.id).sort()).toEqual(['log/feb', 'log/mar']);
   });
 
-  it('orders by temporal proximity with --around (nearest first)', () => {
-    const cards = getCardsFiltered(db, { around: ts('2025-03-10') });
-    // mar (5d) < feb (~23d) < apr (~36d) < jan (~54d)
-    expect(cards.map((c) => c.id)).toEqual(['log/mar', 'log/feb', 'log/apr', 'log/jan']);
-  });
-
-  it('combines proximity ordering with a type filter and limit', () => {
-    const cards = getCardsFiltered(db, { around: ts('2025-04-30'), type: 'log', limit: 2 });
-    expect(cards.map((c) => c.id)).toEqual(['log/apr', 'log/mar']);
+  it('respects a limit (default order by id)', () => {
+    const cards = getCardsFiltered(db, { type: 'log', limit: 2 });
+    expect(cards.map((c) => c.id)).toEqual(['log/apr', 'log/feb']);
   });
 });
 
@@ -136,48 +138,89 @@ describe('searchCardsWithScores — temporal filtering', () => {
     upsertCard(db, makeCard({ id: 'log/new', content: 'crimson battle report', timestamp: ts('2025-06-01') }));
   });
 
-  it('restricts full-text results by --since', () => {
-    const results = searchCardsWithScores(db, 'crimson', { since: ts('2025-01-01') });
+  it('restricts full-text results by --after', () => {
+    const results = searchCardsWithScores(db, 'crimson', { after: ts('2025-01-01') });
     expect(results.map((r) => r.id)).toEqual(['log/new']);
   });
 
-  it('exposes the card timestamp on results for fusion', () => {
+  it('restricts full-text results by --before', () => {
+    const results = searchCardsWithScores(db, 'crimson', { before: ts('2025-01-01') });
+    expect(results.map((r) => r.id)).toEqual(['log/old']);
+  });
+
+  it('exposes the card timestamp on results', () => {
     const results = searchCardsWithScores(db, 'crimson', {});
     expect(results.every((r) => typeof r.timestamp === 'number')).toBe(true);
   });
 });
 
-describe('fuseTemporal', () => {
-  function result(id: string, timestamp: number): ISearchResult {
-    return { id, title: id, type: 'log', tags: [], score: 0, snippet: '', timestamp };
-  }
+describe('shapeSearchResult — output formats', () => {
+  const r: ISearchResult = {
+    id: 'log/mar',
+    title: 'March Report',
+    type: 'log',
+    tags: ['report'],
+    score: 0.51,
+    snippet: 'a crimson banner',
+    timestamp: ts('2025-03-15'),
+  };
 
-  it('ranks closest-in-time card best and reorders the list', () => {
-    // Relevance order: a, b, c. But c is temporally nearest the anchor.
-    const base = [
-      result('a', ts('2025-01-01')),
-      result('b', ts('2025-06-01')),
-      result('c', ts('2025-03-10')),
-    ];
-    const anchor = ts('2025-03-12');
-    const fused = fuseTemporal(base, anchor, 10);
-
-    const c = fused.find((r) => r.id === 'c')!;
-    expect(c.temporal_rank).toBe(1);
-    // RRF (k=60) is a balanced fusion: nearest-in-time alone doesn't override a
-    // large relevance gap, but c (relevance rank 3, temporal rank 1) climbs past
-    // b (relevance rank 2, temporal rank 3).
-    const order = fused.map((r) => r.id);
-    expect(order.indexOf('c')).toBeLessThan(order.indexOf('b'));
+  it('list: compact one-liner fields, timestamp as date, no snippet', () => {
+    const out = shapeSearchResult(r, 'list');
+    expect(out).toEqual({ id: 'log/mar', title: 'March Report', timestamp: '2025-03-15', tags: ['report'], score: 0.51 });
+    expect(out).not.toHaveProperty('snippet');
+    expect(out).not.toHaveProperty('content');
   });
 
-  it('slices to the requested limit', () => {
-    const base = [
-      result('a', ts('2025-01-01')),
-      result('b', ts('2025-02-01')),
-      result('c', ts('2025-03-01')),
-    ];
-    const fused = fuseTemporal(base, ts('2025-02-15'), 2);
-    expect(fused).toHaveLength(2);
+  it('summary (default): includes type + snippet, no content', () => {
+    const out = shapeSearchResult(r, 'summary');
+    expect(out.type).toBe('log');
+    expect(out.snippet).toBe('a crimson banner');
+    expect(out).not.toHaveProperty('content');
+  });
+
+  it('full: summary + full content', () => {
+    const out = shapeSearchResult(r, 'full', 'the whole card body');
+    expect(out.snippet).toBe('a crimson banner');
+    expect(out.content).toBe('the whole card body');
+  });
+});
+
+describe('buildSearchNeighborhood — traverse', () => {
+  let db: Database.Database;
+
+  beforeEach(() => {
+    db = initDatabase(':memory:');
+    upsertCard(db, makeCard({ id: 'n/a', timestamp: ts('2025-01-01') }));
+    upsertCard(db, makeCard({ id: 'n/b', timestamp: ts('2025-02-01') }));
+    upsertCard(db, makeCard({ id: 'n/c', timestamp: ts('2025-03-01') }));
+    // a → b, b → c, c → a (cycle)
+    insertEdge(db, { source_id: 'n/a', target_id: 'n/b', context: '', position: 0 });
+    insertEdge(db, { source_id: 'n/b', target_id: 'n/c', context: '', position: 0 });
+    insertEdge(db, { source_id: 'n/c', target_id: 'n/a', context: '', position: 0 });
+  });
+
+  it('depth 1: direct out and in links as compact nodes', () => {
+    const hood = buildSearchNeighborhood(db, 'n/a', 1);
+    expect(hood.links_out.map((n) => n.id)).toEqual(['n/b']); // a → b
+    expect(hood.links_in.map((n) => n.id)).toEqual(['n/c']); // c → a
+
+    const b = hood.links_out[0];
+    expect(b).toEqual({ id: 'n/b', title: 'n/b', type: 'n', timestamp: '2025-02-01', tags: [] });
+    expect(b).not.toHaveProperty('score');
+    expect(b).not.toHaveProperty('snippet');
+  });
+
+  it('depth 1 does not nest deeper links', () => {
+    const hood = buildSearchNeighborhood(db, 'n/a', 1);
+    expect(hood.links_out[0]).not.toHaveProperty('links_out');
+  });
+
+  it('depth 2 nests the next hop and avoids revisiting the hit', () => {
+    const hood = buildSearchNeighborhood(db, 'n/a', 2);
+    const b = hood.links_out[0]; // a → b
+    expect(b.links_out?.map((n) => n.id)).toEqual(['n/c']); // b → c
+    // c → a would revisit the hit (a), so it must not reappear
+    expect(b.links_in?.map((n) => n.id) ?? []).not.toContain('n/a');
   });
 });

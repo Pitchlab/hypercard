@@ -98,12 +98,11 @@ program
     '  hypercard ls --search "crimson"    # Full-text search\n' +
     '  hypercard ls --search "military" --type=factions  # Search + type filter\n' +
     '  hypercard ls --search "warrior" --tag=antagonist  # Search + tag filter\n' +
-    '  hypercard ls --since 2025-01-01    # Cards dated on/after a date\n' +
-    '  hypercard ls --since 2025-01-01 --until 2025-03-31  # Date range\n' +
-    '  hypercard ls --around 2025-02-14   # Sort by temporal proximity (nearest first)\n\n' +
+    '  hypercard ls --after 2025-01-01    # Cards dated on/after a date\n' +
+    '  hypercard ls --after 2025-01-01 --before 2025-03-31  # Date range\n\n' +
     'Temporal layer: each card has a canonical timestamp (a frontmatter date field\n' +
-    '— date/created/published/... — falling back to file mtime). --since/--until\n' +
-    'filter on it; --around orders by closeness in time.\n\n' +
+    '— date/created/published/... — falling back to file mtime). --after/--before\n' +
+    'filter on it (time is a scalar — just an inclusive range).\n\n' +
     'Output: count, cards[] (id, title, type, tags, links_out, links_in)',
   )
   .option('--type <type>', 'Filter cards by type (first directory segment)')
@@ -111,9 +110,8 @@ program
   .option('--where <filter...>', 'Filter by frontmatter key=value (repeatable, AND logic)')
   .option('--orphans', 'Show only orphan cards (no incoming or outgoing links)')
   .option('--search <query>', 'Full-text search using FTS5 (combines with --type, --tag, --where)')
-  .option('--since <date>', 'Only cards with timestamp on/after this date (ISO, e.g. 2025-01-01)')
-  .option('--until <date>', 'Only cards with timestamp on/before this date (inclusive of the day)')
-  .option('--around <date>', 'Order by temporal proximity to this date (nearest first)')
+  .option('--after <date>', 'Only cards with timestamp on/after this date (ISO, e.g. 2025-01-01)')
+  .option('--before <date>', 'Only cards with timestamp on/before this date (inclusive of the day)')
   .action(lsCommand);
 
 program
@@ -139,30 +137,29 @@ program
     'Search across all cards. Default mode is hybrid (BM25 + semantic, fused with RRF),\n' +
     'auto-falling back to BM25 when no embeddings exist yet.\n\n' +
     'Examples:\n' +
-    '  hypercard search "crimson military"           # Hybrid (default)\n' +
-    '  hypercard search "crimson" --type=factions    # Filter by type\n' +
-    '  hypercard search "trade" --tag=neutral        # Filter by tag\n' +
-    '  hypercard search "crimson" --limit=20         # More results\n' +
-    '  hypercard search "warriors" --semantic        # Semantic only\n' +
-    '  hypercard search "crimson" --bm25             # Keyword only\n' +
+    '  hypercard search "crimson military"               # Hybrid (default)\n' +
+    '  hypercard search "warriors" --mode semantic       # Pick retrieval mode\n' +
+    '  hypercard search "crimson" --type=factions        # Filter by type\n' +
+    '  hypercard search "trade" --tag=neutral            # Filter by tag\n' +
     '  hypercard search "crimson" --where status=published  # Filter by frontmatter\n' +
-    '  hypercard search "crimson" --since 2025-01-01 --until 2025-06-30  # Restrict to a date range\n' +
-    '  hypercard search "crimson" --around 2025-02-14  # Fuse temporal proximity into ranking\n\n' +
-    'Temporal layer: --since/--until restrict results by card timestamp; --around\n' +
-    'adds temporal proximity as a third RRF dimension alongside BM25 + semantic\n' +
-    '(results gain a temporal_rank field).\n\n' +
-    'Output: query, mode, count, results[] (id, title, type, tags, score, snippet)',
+    '  hypercard search "crimson" --after 2025-01-01 --before 2025-06-30  # Date range\n' +
+    '  hypercard search "crimson" --topk 20              # More results\n' +
+    '  hypercard search "crimson" --format list          # One line per hit\n' +
+    '  hypercard search "crimson" --traverse 1           # Include each hit\'s links\n\n' +
+    'Filters (--type, --tag, --where, --after, --before) all combine with AND.\n' +
+    '--format: list (compact one-liner), summary (default: +snippet), full (+content).\n' +
+    '--traverse <depth> nests each hit\'s link neighborhood (compact) up to 3 hops.\n\n' +
+    'Output: query, mode, format, count, results[] (shape depends on --format)',
   )
+  .option('--mode <mode>', 'Retrieval mode: bm25 | semantic | hybrid (default: hybrid)', 'hybrid')
   .option('--type <type>', 'Filter by type')
   .option('--tag <tag>', 'Filter by tag')
   .option('--where <filter...>', 'Filter by frontmatter key=value (repeatable, AND logic)')
-  .option('--limit <n>', 'Max results (default: 10)', '10')
-  .option('--bm25', 'Keyword (BM25) search only')
-  .option('--semantic', 'Semantic vector search only')
-  .option('--hybrid', 'Hybrid BM25 + semantic search (default)')
-  .option('--since <date>', 'Only results with timestamp on/after this date (ISO, e.g. 2025-01-01)')
-  .option('--until <date>', 'Only results with timestamp on/before this date (inclusive of the day)')
-  .option('--around <date>', 'Fuse temporal proximity to this date into ranking (RRF)')
+  .option('--after <date>', 'Only results with timestamp on/after this date (ISO, e.g. 2025-01-01)')
+  .option('--before <date>', 'Only results with timestamp on/before this date (inclusive of the day)')
+  .option('--topk <n>', 'Max results (default: 10)', '10')
+  .option('--format <format>', 'Output detail: list | summary | full (default: summary)', 'summary')
+  .option('--traverse <depth>', 'Include each hit\'s link neighborhood up to <depth> hops (1-3)')
   .action(searchCommand);
 
 program

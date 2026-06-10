@@ -77,9 +77,17 @@ export function deriveTimestamp(frontmatter: Record<string, unknown>, mtime: num
 }
 
 /**
- * Parse a CLI date boundary (--since / --until). When the input is a bare
+ * Render an epoch-ms timestamp as a compact ISO calendar date (YYYY-MM-DD, UTC).
+ * Used by the `list` output format and by traversed-neighbor rendering.
+ */
+export function formatDate(ms: number): string {
+  return new Date(ms).toISOString().slice(0, 10);
+}
+
+/**
+ * Parse a CLI date boundary (--after / --before). When the input is a bare
  * calendar date (YYYY-MM-DD) and `endOfDay` is set, the boundary is pushed to
- * the last millisecond of that day so `--until 2025-06-10` includes everything
+ * the last millisecond of that day so `--before 2025-06-10` includes everything
  * that happened on the 10th. Returns null for unparseable input.
  */
 export function parseDateBoundary(input: string, opts: { endOfDay?: boolean } = {}): number | null {

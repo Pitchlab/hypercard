@@ -10,7 +10,7 @@ export interface ICard {
   /**
    * Canonical timestamp (epoch ms) for the temporal layer. Derived at index
    * time from a frontmatter date field (date/created/published/...), falling
-   * back to the file mtime. Drives --since/--until/--around queries.
+   * back to the file mtime. Drives --after/--before queries.
    */
   timestamp: number;
   content_hash: string;
@@ -53,10 +53,8 @@ export interface ISearchResult {
   snippet: string;
   bm25_rank?: number;
   vec_rank?: number;
-  /** Canonical timestamp (epoch ms) of the card — present on temporal queries. */
+  /** Canonical timestamp (epoch ms) of the card. Drives --after/--before and the `list` format. */
   timestamp?: number;
-  /** Rank in the temporal-proximity dimension when fused via --around. */
-  temporal_rank?: number;
 }
 
 export interface IConfig {
