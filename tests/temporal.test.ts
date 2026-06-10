@@ -1,4 +1,7 @@
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
 import Database from 'better-sqlite3';
 import { initDatabase, upsertCard, getCardsFiltered, searchCardsWithScores, insertEdge } from '../src/core/db.js';
 import { parseTimestamp, deriveTimestamp, parseDateBoundary, formatDate } from '../src/util/dates.js';
@@ -222,5 +225,76 @@ describe('buildSearchNeighborhood — traverse', () => {
     expect(b.links_out?.map((n) => n.id)).toEqual(['n/c']); // b → c
     // c → a would revisit the hit (a), so it must not reappear
     expect(b.links_in?.map((n) => n.id) ?? []).not.toContain('n/a');
+  });
+});
+
+describe('initDatabase — timestamp migration on pre-temporal DBs', () => {
+  let dir: string;
+  let dbPath: string;
+
+  beforeEach(() => {
+    dir = fs.mkdtempSync(path.join(os.tmpdir(), 'hc-migrate-'));
+    dbPath = path.join(dir, 'old.db');
+
+    // Build a DB with the OLD schema: cards table without a `timestamp` column.
+    const old = new Database(dbPath);
+    old.pragma('journal_mode = WAL');
+    // Faithful pre-temporal schema: cards (no timestamp) + the external-content
+    // FTS5 table AND its sync triggers, so the FTS shadow stays consistent
+    // (exactly what real old hypercard DBs look like).
+    old.exec(`
+      CREATE TABLE cards (
+        id TEXT PRIMARY KEY, path TEXT NOT NULL, title TEXT, type TEXT NOT NULL,
+        tags TEXT DEFAULT '[]', content TEXT NOT NULL, frontmatter TEXT DEFAULT '{}',
+        mtime REAL NOT NULL, content_hash TEXT
+      );
+      CREATE VIRTUAL TABLE cards_fts USING fts5(id, title, tags, content, content=cards, content_rowid=rowid, tokenize='porter unicode61');
+      CREATE TRIGGER cards_ai AFTER INSERT ON cards BEGIN
+        INSERT INTO cards_fts(rowid, id, title, tags, content) VALUES (new.rowid, new.id, new.title, new.tags, new.content);
+      END;
+      CREATE TRIGGER cards_ad AFTER DELETE ON cards BEGIN
+        INSERT INTO cards_fts(cards_fts, rowid, id, title, tags, content) VALUES ('delete', old.rowid, old.id, old.title, old.tags, old.content);
+      END;
+      CREATE TRIGGER cards_au AFTER UPDATE ON cards BEGIN
+        INSERT INTO cards_fts(cards_fts, rowid, id, title, tags, content) VALUES ('delete', old.rowid, old.id, old.title, old.tags, old.content);
+        INSERT INTO cards_fts(rowid, id, title, tags, content) VALUES (new.rowid, new.id, new.title, new.tags, new.content);
+      END;
+    `);
+    old
+      .prepare('INSERT INTO cards (id,path,title,type,tags,content,frontmatter,mtime,content_hash) VALUES (?,?,?,?,?,?,?,?,?)')
+      .run('notes/a', 'notes/a.md', 'Note A', 'notes', '[]', 'old body', '{}', ts('2023-05-05'), 'hash');
+    old.close();
+  });
+
+  afterEach(() => {
+    fs.rmSync(dir, { recursive: true, force: true });
+  });
+
+  it('migrates without throwing (regression: index DDL used to run before the column existed)', () => {
+    expect(() => initDatabase(dbPath)).not.toThrow();
+  });
+
+  it('adds the timestamp column, backfills from mtime, and creates the index', () => {
+    const db = initDatabase(dbPath);
+    const cols = (db.pragma('table_info(cards)') as { name: string }[]).map((c) => c.name);
+    expect(cols).toContain('timestamp');
+
+    const row = db.prepare('SELECT timestamp, mtime FROM cards WHERE id = ?').get('notes/a') as {
+      timestamp: number;
+      mtime: number;
+    };
+    expect(row.timestamp).toBe(row.mtime); // backfilled
+
+    const indexes = (db.pragma('index_list(cards)') as { name: string }[]).map((i) => i.name);
+    expect(indexes).toContain('idx_cards_timestamp');
+    db.close();
+  });
+
+  it('lets temporal range queries run on a migrated DB', () => {
+    const db = initDatabase(dbPath);
+    expect(() => getCardsFiltered(db, { after: ts('2020-01-01') })).not.toThrow();
+    const hits = getCardsFiltered(db, { after: ts('2020-01-01') });
+    expect(hits.map((c) => c.id)).toEqual(['notes/a']);
+    db.close();
   });
 });

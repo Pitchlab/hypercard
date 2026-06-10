@@ -58,8 +58,10 @@ CREATE TABLE IF NOT EXISTS edges (
 CREATE INDEX IF NOT EXISTS idx_edges_target ON edges(target_id);
 CREATE INDEX IF NOT EXISTS idx_edges_source ON edges(source_id);
 CREATE INDEX IF NOT EXISTS idx_cards_type ON cards(type);
-CREATE INDEX IF NOT EXISTS idx_cards_timestamp ON cards(timestamp);
 `;
+// NOTE: the idx_cards_timestamp index is created AFTER migration (see
+// initDatabase), never here — on a pre-timestamp DB this SCHEMA runs before the
+// column exists, and indexing a missing column would throw before migration.
 
 export function initDatabase(dbPath: string): Database.Database {
   const db = new Database(dbPath);
@@ -75,14 +77,18 @@ export function initDatabase(dbPath: string): Database.Database {
   }
 
   // Migration: add temporal-layer timestamp column to existing DBs. Backfill
-  // with mtime so range/proximity queries work before the next reindex
-  // recomputes the canonical (frontmatter-derived) timestamp.
+  // with mtime so range queries work before the next reindex recomputes the
+  // canonical (frontmatter-derived) timestamp.
   const hasTimestamp = columns.some((col) => col.name === 'timestamp');
   if (!hasTimestamp) {
     db.exec('ALTER TABLE cards ADD COLUMN timestamp REAL');
     db.exec('UPDATE cards SET timestamp = mtime WHERE timestamp IS NULL');
-    db.exec('CREATE INDEX IF NOT EXISTS idx_cards_timestamp ON cards(timestamp)');
   }
+
+  // Index the timestamp column unconditionally — the column is now guaranteed to
+  // exist (fresh DBs get it from CREATE TABLE, old DBs from the ALTER above), so
+  // this is safe whereas putting it in SCHEMA was not.
+  db.exec('CREATE INDEX IF NOT EXISTS idx_cards_timestamp ON cards(timestamp)');
 
   return db;
 }
