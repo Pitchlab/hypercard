@@ -3,6 +3,7 @@ import type { ISearchResult } from './types.js';
 import type { IEmbedder } from './embedder.js';
 import { cosineSimilarity, deserializeEmbedding } from './embedder.js';
 import { searchCardsWithScores } from './db.js';
+import { formatDate } from '../util/dates.js';
 
 export { cosineSimilarity };
 
@@ -11,6 +12,48 @@ interface ISearchOptions {
   tag?: string;
   where?: Record<string, string>;
   limit?: number;
+  // Temporal layer — time is a scalar, so just an inclusive range.
+  after?: number;
+  before?: number;
+}
+
+export type SearchFormat = 'list' | 'summary' | 'full';
+
+/**
+ * Shape a search hit for output according to --format.
+ * - `list`: compact one-liner fields (id, title, date, tags, score)
+ * - `summary` (default): id, title, type, tags, score, snippet
+ * - `full`: summary + the card's full content (passed in by the caller)
+ */
+export function shapeSearchResult(
+  r: ISearchResult,
+  format: SearchFormat,
+  content?: string,
+): Record<string, unknown> {
+  if (format === 'list') {
+    return {
+      id: r.id,
+      title: r.title,
+      timestamp: r.timestamp !== undefined ? formatDate(r.timestamp) : undefined,
+      tags: r.tags,
+      score: r.score,
+    };
+  }
+
+  const base: Record<string, unknown> = {
+    id: r.id,
+    title: r.title,
+    type: r.type,
+    tags: r.tags,
+    score: r.score,
+    snippet: r.snippet,
+  };
+
+  if (format === 'full') {
+    base.content = content ?? '';
+  }
+
+  return base;
 }
 
 interface IVecRow {
@@ -21,10 +64,12 @@ interface IVecRow {
   tags: string;
   content: string;
   frontmatter: string;
+  timestamp: number | null;
+  mtime: number;
 }
 
 function passesFilters(
-  row: { type: string; tags: string; frontmatter: string },
+  row: { type: string; tags: string; frontmatter: string; timestamp: number | null; mtime: number },
   options: ISearchOptions,
 ): boolean {
   if (options.type && row.type !== options.type) {
@@ -47,6 +92,12 @@ function passesFilters(
     }
   }
 
+  if (options.after !== undefined || options.before !== undefined) {
+    const ts = row.timestamp ?? row.mtime;
+    if (options.after !== undefined && ts < options.after) return false;
+    if (options.before !== undefined && ts > options.before) return false;
+  }
+
   return true;
 }
 
@@ -66,7 +117,7 @@ export async function searchSemantic(
 
   const rows = db
     .prepare(
-      `SELECT cv.id, cv.embedding, c.title, c.type, c.tags, c.content, c.frontmatter
+      `SELECT cv.id, cv.embedding, c.title, c.type, c.tags, c.content, c.frontmatter, c.timestamp, c.mtime
        FROM cards_vec cv
        JOIN cards c ON cv.id = c.id`,
     )
@@ -93,6 +144,7 @@ export async function searchSemantic(
     score: Math.round(item.similarity * 1000) / 1000,
     snippet: extractSnippet(item.row.content),
     vec_rank: index + 1,
+    timestamp: item.row.timestamp ?? item.row.mtime,
   }));
 }
 
@@ -154,6 +206,7 @@ export async function searchHybrid(
       snippet: data.snippet,
       bm25_rank: bm25Ranks.has(id) ? bm25Rank : undefined,
       vec_rank: vecRanks.has(id) ? vecRank : undefined,
+      timestamp: data.timestamp,
     });
   }
 

@@ -11,6 +11,7 @@ CREATE TABLE IF NOT EXISTS cards (
   content     TEXT NOT NULL,
   frontmatter TEXT DEFAULT '{}',
   mtime       REAL NOT NULL,
+  timestamp   REAL,
   content_hash TEXT
 );
 
@@ -58,6 +59,9 @@ CREATE INDEX IF NOT EXISTS idx_edges_target ON edges(target_id);
 CREATE INDEX IF NOT EXISTS idx_edges_source ON edges(source_id);
 CREATE INDEX IF NOT EXISTS idx_cards_type ON cards(type);
 `;
+// NOTE: the idx_cards_timestamp index is created AFTER migration (see
+// initDatabase), never here — on a pre-timestamp DB this SCHEMA runs before the
+// column exists, and indexing a missing column would throw before migration.
 
 export function initDatabase(dbPath: string): Database.Database {
   const db = new Database(dbPath);
@@ -72,14 +76,28 @@ export function initDatabase(dbPath: string): Database.Database {
     db.exec('ALTER TABLE cards ADD COLUMN content_hash TEXT');
   }
 
+  // Migration: add temporal-layer timestamp column to existing DBs. Backfill
+  // with mtime so range queries work before the next reindex recomputes the
+  // canonical (frontmatter-derived) timestamp.
+  const hasTimestamp = columns.some((col) => col.name === 'timestamp');
+  if (!hasTimestamp) {
+    db.exec('ALTER TABLE cards ADD COLUMN timestamp REAL');
+    db.exec('UPDATE cards SET timestamp = mtime WHERE timestamp IS NULL');
+  }
+
+  // Index the timestamp column unconditionally — the column is now guaranteed to
+  // exist (fresh DBs get it from CREATE TABLE, old DBs from the ALTER above), so
+  // this is safe whereas putting it in SCHEMA was not.
+  db.exec('CREATE INDEX IF NOT EXISTS idx_cards_timestamp ON cards(timestamp)');
+
   return db;
 }
 
 // --- Card CRUD ---
 
 const UPSERT_CARD = `
-  INSERT INTO cards (id, path, title, type, tags, content, frontmatter, mtime, content_hash)
-  VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+  INSERT INTO cards (id, path, title, type, tags, content, frontmatter, mtime, timestamp, content_hash)
+  VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   ON CONFLICT(id) DO UPDATE SET
     path = excluded.path,
     title = excluded.title,
@@ -88,6 +106,7 @@ const UPSERT_CARD = `
     content = excluded.content,
     frontmatter = excluded.frontmatter,
     mtime = excluded.mtime,
+    timestamp = excluded.timestamp,
     content_hash = excluded.content_hash
 `;
 
@@ -101,6 +120,7 @@ export function upsertCard(db: Database.Database, card: ICard): void {
     card.content,
     JSON.stringify(card.frontmatter),
     card.mtime,
+    card.timestamp,
     card.content_hash,
   );
 }
@@ -160,9 +180,25 @@ export function getCardsByWhere(db: Database.Database, filters: Record<string, s
   return rows.map(rowToCard);
 }
 
+/**
+ * Temporal-layer filter options shared by list and search queries.
+ * `after`/`before` are inclusive epoch-ms bounds on the card timestamp.
+ * Time is a scalar — range comparison is all it needs.
+ */
+export interface ITemporalOptions {
+  after?: number;
+  before?: number;
+}
+
+export type IFilterOptions = {
+  type?: string;
+  tag?: string;
+  where?: Record<string, string>;
+} & ITemporalOptions;
+
 export function getCardsFiltered(
   db: Database.Database,
-  options: { type?: string; tag?: string; where?: Record<string, string> },
+  options: IFilterOptions & { limit?: number },
 ): ICard[] {
   const whereClauses: string[] = [];
   const params: (string | number)[] = [];
@@ -187,11 +223,26 @@ export function getCardsFiltered(
     }
   }
 
+  // Temporal range filters
+  if (options.after !== undefined) {
+    whereClauses.push('timestamp >= ?');
+    params.push(options.after);
+  }
+  if (options.before !== undefined) {
+    whereClauses.push('timestamp <= ?');
+    params.push(options.before);
+  }
+
   let query = 'SELECT * FROM cards';
   if (whereClauses.length > 0) {
     query += ' WHERE ' + whereClauses.join(' AND ');
   }
   query += ' ORDER BY id';
+
+  if (options.limit !== undefined) {
+    query += ' LIMIT ?';
+    params.push(options.limit);
+  }
 
   const rows = db.prepare(query).all(...params) as Record<string, unknown>[];
   return rows.map(rowToCard);
@@ -213,7 +264,7 @@ export function searchCards(db: Database.Database, query: string): ICard[] {
 export function searchCardsFiltered(
   db: Database.Database,
   query: string,
-  options: { type?: string; tag?: string; where?: Record<string, string> },
+  options: IFilterOptions,
 ): ICard[] {
   const conditions: string[] = ['cards_fts MATCH ?'];
   const params: (string | number)[] = [query];
@@ -235,6 +286,15 @@ export function searchCardsFiltered(
     }
   }
 
+  if (options.after !== undefined) {
+    conditions.push('cards.timestamp >= ?');
+    params.push(options.after);
+  }
+  if (options.before !== undefined) {
+    conditions.push('cards.timestamp <= ?');
+    params.push(options.before);
+  }
+
   const sql = `
     SELECT cards.*
     FROM cards_fts
@@ -250,7 +310,7 @@ export function searchCardsFiltered(
 export function searchCardsWithScores(
   db: Database.Database,
   query: string,
-  options: { type?: string; tag?: string; where?: Record<string, string>; limit?: number },
+  options: IFilterOptions & { limit?: number },
 ): ISearchResult[] {
   const conditions: string[] = ['cards_fts MATCH ?'];
   const params: (string | number)[] = [query];
@@ -270,6 +330,15 @@ export function searchCardsWithScores(
       conditions.push(`json_extract(cards.frontmatter, '$.' || ?) = ?`);
       params.push(key, value);
     }
+  }
+
+  if (options.after !== undefined) {
+    conditions.push('cards.timestamp >= ?');
+    params.push(options.after);
+  }
+  if (options.before !== undefined) {
+    conditions.push('cards.timestamp <= ?');
+    params.push(options.before);
   }
 
   const limit = options.limit ?? 10;
@@ -299,6 +368,7 @@ export function searchCardsWithScores(
       score: Math.round(score * 1000) / 1000,
       snippet,
       bm25_rank: index + 1,
+      timestamp: card.timestamp,
     };
   });
 }
@@ -461,6 +531,7 @@ function rowToCard(row: Record<string, unknown>): ICard {
     content: row.content as string,
     frontmatter: JSON.parse(row.frontmatter as string),
     mtime: row.mtime as number,
+    timestamp: (row.timestamp as number | null) ?? (row.mtime as number),
     content_hash: (row.content_hash as string) ?? '',
   };
 }

@@ -1,8 +1,15 @@
 # Changelog
 
-## [Unreleased] - 2026-06-08
+## [Unreleased] - 2026-06-10
+
+### Added
+- **Temporal layer — time as a scalar filter over cards.** Each card carries a canonical `timestamp` (epoch ms), pre-computed at index time from a frontmatter date field (`date`/`created`/`created_at`/`published`/`timestamp`/`updated`/`modified`/…, in priority order) with a fallback to file mtime (`src/util/dates.ts`). New SQLite `timestamp` column + index, with an automatic migration (backfilled from mtime) for existing databases. Time is a scalar, so it's a plain inclusive range — no embeddings, no proximity ranking, no cyclic encoding (YAGNI).
+  - **`ls` and `search` gain `--after` / `--before`.** Filter by card timestamp; a bare `--before 2025-06-10` is inclusive of the whole day. Combine with all other filters via AND.
+- **`search` interface overhaul.** Retrieval mode is now a single `--mode <bm25|semantic|hybrid>` (default `hybrid`) instead of three boolean flags. `--limit` renamed to `--topk`. New `--format <list|summary|full>` (default `summary`): `list` is a compact one-liner per hit (`id`, `title`, `timestamp`, `tags`, `score`), `full` adds the card's content. New `--traverse <depth>` (1–3) nests each hit's link neighborhood as compact nodes under `links_out`/`links_in` (neighbors carry no snippet/score and are budget-capped at 50 to bound deep traversals).
+  - Decided against the heavier `hypergraph-temporal-layer` vision (time as a learned vector embedding / multiplex graph embeddings): for range + filtering a numeric column beats a vector on every axis (exact, cheap, interpretable). See the idea note for the rationale.
 
 ### Fixed
+- **Temporal-layer migration crashed on pre-timestamp databases** (`no such column: timestamp`). The `idx_cards_timestamp` index was created inside the always-run `SCHEMA` block, which executes before the migration adds the column — so on an existing (pre-temporal) DB the index DDL referenced a missing column and threw before the migration could run, leaving old databases unable to index. The index is now created unconditionally *after* migration (when the column is guaranteed to exist), so old DBs auto-migrate on the next open. Added regression tests that build a faithful pre-temporal DB and assert clean migration + backfill.
 - **Code-block-aware link extraction.** `[[refs]]` inside fenced (```` ``` ````/`~~~`) or inline code are no longer indexed as edges, rewritten by `convert`, or matched by `link`/`unlink`. New `src/util/markdown.ts` (`stripCodeRegions`, `structuralLineFlags`) preserves character offsets so context/positions stay correct.
 - **`convert --write` data-safety.** A filename with BOTH spaces and uppercase now renames in a single canonical pass (was: a second `renameSync` crashing with ENOENT, leaving the tree half-renamed). Added a collision guard that refuses to overwrite a different existing file (critical on case-insensitive macOS). Frontmatter is no longer round-tripped through the YAML dumper when only adding `tags: []` — key order and quoting are preserved. Cross-file reference updates read-once/write-once and follow files renamed earlier in the same run.
 - **`unlink` no longer corrupts Markdown.** Whitespace is tidied only on lines that actually contained the removed link, preserving hard line breaks (trailing double space) and table padding elsewhere. `link` never inserts into frontmatter or code blocks.
@@ -13,7 +20,7 @@
 ### Changed
 - **Docs accuracy.** Marked `lint`/`rename` as planned-not-implemented across README and CLAUDE.md; documented the shipped `link`/`unlink`/`suggest-links`/`start` commands; corrected the search default (hybrid, not BM25); fixed the embeddings package name (`@huggingface/transformers ^3.8.1`, not `@xenova/transformers`); clarified that link maintenance is the one exception to "never writes content".
 - **Tooling**: removed the broken `test:e2e` script (no config/tests existed; daemon lifecycle is covered by the CLI integration suite). `.gitignore` now ignores `.hypercard/` and `dev-docs/` (was a stale `.maas/`).
-- **Tests**: +31 new tests (245 total) covering code-block stripping, linker insert/remove safety, the canonical rename + collision guard, and the serial queue + startup lock.
+- **Tests**: +64 new tests (278 total) covering code-block stripping, linker insert/remove safety, the canonical rename + collision guard, the serial queue + startup lock, the temporal layer + search overhaul (timestamp derivation, date-boundary parsing, range filters, `--format` shaping, `--traverse` compact-neighborhood building), and pre-timestamp DB migration.
 
 ### Removed
 - Internal planning docs (`docs/`) moved to local-only `dev-docs/` (gitignored) and purged from git history.

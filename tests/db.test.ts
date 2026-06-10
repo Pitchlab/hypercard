@@ -32,6 +32,7 @@ function createTestCard(overrides: Partial<ICard> = {}): ICard {
     content: 'Test content',
     frontmatter: {},
     mtime: Date.now(),
+    timestamp: Date.now(),
     content_hash: '',
     ...overrides,
   };
