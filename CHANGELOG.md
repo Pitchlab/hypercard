@@ -2,6 +2,9 @@
 
 ## [Unreleased] - 2026-06-10
 
+### Documentation
+- **README: running the daemon at login + backfilling embeddings.** Added a launchd recipe (example plist + load commands) to keep the index hot from login — documented as a one-shot `RunAtLoad` launcher since `hypercard start` detaches the daemon (no `KeepAlive`). Added a "Backfill embeddings" note: `hypercard status` reports coverage (`embeddings: N/total`), and `hypercard index` backfills missing embeddings so semantic/hybrid search covers all cards.
+
 ### Added
 - **Temporal layer — time as a scalar filter over cards.** Each card carries a canonical `timestamp` (epoch ms), pre-computed at index time from a frontmatter date field (`date`/`created`/`created_at`/`published`/`timestamp`/`updated`/`modified`/…, in priority order) with a fallback to file mtime (`src/util/dates.ts`). New SQLite `timestamp` column + index, with an automatic migration (backfilled from mtime) for existing databases. Time is a scalar, so it's a plain inclusive range — no embeddings, no proximity ranking, no cyclic encoding (YAGNI).
   - **`ls` and `search` gain `--after` / `--before`.** Filter by card timestamp; a bare `--before 2025-06-10` is inclusive of the whole day. Combine with all other filters via AND.
