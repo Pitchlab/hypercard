@@ -251,6 +251,64 @@ hypercard stop       # Stop the background daemon
 hypercard notify <file>   # Fire-and-forget reindex trigger (for editor hooks)
 ```
 
+#### Keep the daemon running at login (macOS launchd)
+
+The daemon auto-starts on the first command and idles out after 30 min. To keep
+the index hot from the moment you log in, run a launchd agent that calls
+`hypercard start` at login. `hypercard start` **detaches** the daemon and returns,
+so this is a one-shot launcher — use `RunAtLoad` with **no** `KeepAlive` (with
+`KeepAlive`, launchd would see the launcher exit and restart it in a loop).
+
+Create `~/Library/LaunchAgents/com.example.hypercard-daemon.plist`:
+
+```xml
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>            <string>com.example.hypercard-daemon</string>
+  <key>WorkingDirectory</key> <string>/path/to/your/vault</string>
+  <key>RunAtLoad</key>        <true/>
+  <key>ProgramArguments</key>
+  <array>
+    <string>/bin/zsh</string>
+    <string>-lc</string>
+    <!-- launchd has no shell profile: PATH must be explicit so `hypercard`
+         (and its node) resolve. Adjust to your install. -->
+    <string>export PATH="$HOME/Library/pnpm:$HOME/.nvm/versions/node/*/bin:/opt/homebrew/bin:$PATH"; hypercard status | grep -q "daemon: running" || hypercard start</string>
+  </array>
+</dict>
+</plist>
+```
+
+Load it (re-run after edits with `bootout` first):
+
+```bash
+launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.example.hypercard-daemon.plist
+launchctl bootout   gui/$(id -u)/com.example.hypercard-daemon   # to remove
+hypercard status                                                # verify it came up
+```
+
+The `WorkingDirectory` is what binds the daemon to a project — point it at the
+folder you run `hypercard init` in. The `status | grep || start` guard makes the
+launcher idempotent (no-op if the daemon is already up).
+
+#### Backfill embeddings
+
+Semantic and hybrid search only cover cards that have embeddings. `hypercard status`
+reports coverage (e.g. `embeddings: 679/681`); a gap appears after bulk-adding or
+editing many cards. Run a full reindex to backfill — it (re)builds embeddings for
+any stale/missing cards:
+
+```bash
+hypercard index            # full reindex → backfills all missing embeddings
+hypercard status           # confirm embeddings == cards, embedder_loaded: true
+```
+
+Until the backfill completes, search falls back to BM25 (keyword) for the
+un-embedded cards. Embeddings require the embedder model to load (the daemon
+handles this); `embedder_loaded: true` in `status` confirms it's ready.
+
 ### Planned (not yet implemented)
 
 `hypercard lint` (broken-link/orphan/duplicate checks) and `hypercard rename <old> <new>`
